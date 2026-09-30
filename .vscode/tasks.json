@@ -1,0 +1,25 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run core tests",
+      "type": "shell",
+      "command": "python -m pytest",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Build extension zip",
+      "type": "shell",
+      "command": "blender --command extension build --source-dir weathered_board --output-dir dist",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Validate extension",
+      "type": "shell",
+      "command": "blender --command extension validate weathered_board",
+      "problemMatcher": []
+    }
+  ]
+}

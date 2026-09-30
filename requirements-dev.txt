@@ -1,0 +1,5 @@
+# Development only. Blender ships its own Python and numpy for the add-on.
+numpy
+pytest
+# Autocomplete for bpy in VS Code:
+fake-bpy-module-4.2

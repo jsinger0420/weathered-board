@@ -1,0 +1,22 @@
+schema_version = "1.0.0"
+
+id = "weathered_board"
+version = "0.1.0"
+name = "Weathered Board"
+tagline = "Generate weathered wooden boards for 3D printing"
+maintainer = "John <john@singerlinks.com>"
+type = "add-on"
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
+tags = ["Add Mesh", "Modeling"]
+
+[permissions]
+files = "Export boards as STL files"
+
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  "*.pyc",
+]
