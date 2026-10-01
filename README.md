@@ -78,7 +78,12 @@ This writes `dist/weathered_board-<version>.zip`. Install it with *Edit > Prefer
 
 ## Using boards in FreeCAD
 
-Export STL from the panel's *Printing* section; files are in millimetres. In FreeCAD, *File > Import* the STL (Mesh workbench). To use it in Part or PartDesign, *Part > Create shape from mesh*, then *Part > Convert to solid*. Dense weathered meshes make heavy solids, so keep the mesh as a mesh where you can, or use a coarser resolution for the FreeCAD copy.
+Turning a mesh into a FreeCAD solid makes every triangle a face, and a full-detail 8 ft board at 1:48 has about 370,000 triangles, which takes a very long time. Before exporting for FreeCAD, turn on **Simplify Mesh** in the panel's *Printing* section:
+
+- **Max Triangles** 20,000 (the default) keeps every point within about 0.009 mm of the full mesh; 10,000 stays within 0.015 mm and converts faster. Either is well below what a printer shows.
+- The full-detail mesh stays underneath, so you can turn Simplify off again at any time without rebuilding.
+
+Then *Export STL* (files are in millimetres). In FreeCAD, *File > Import* the STL (Mesh workbench). If you only need to place the board, it can stay a mesh. For Part or PartDesign work, use *Part > Create shape from mesh* (sewing tolerance 0.01 mm or less), then *Part > Convert to solid*.
 
 ## Workflow
 

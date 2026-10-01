@@ -18,6 +18,7 @@ from mathutils.bvhtree import BVHTree
 
 from . import mesh_io
 from .core import ParamError, build, check
+from .core import printcheck
 from .core.printcheck import ERROR, INFO, OK, WARNING, Finding
 from .core.params import EDGE_GROUPS
 
@@ -58,6 +59,7 @@ def rebuild(obj) -> str:
         settings.last_error = str(err)
         return str(err)
     mesh_io.replace_mesh(obj, result.vertices, result.triangles, result.preview)
+    mesh_io.apply_simplify(obj)
     settings.last_error = ""
     settings.check_report = ""  # any earlier check no longer applies
     return ""
@@ -78,7 +80,9 @@ def object_findings(obj, params) -> list[Finding]:
     out: list[Finding] = []
     bm = bmesh.new()
     try:
-        bm.from_mesh(obj.data)
+        # The mesh as it will export: with the Simplify modifier, if any.
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        bm.from_object(obj, depsgraph)
         bm.transform(obj.matrix_world)
         bm.verts.ensure_lookup_table()
         bad_edges = sum(1 for e in bm.edges if not e.is_manifold)
@@ -112,6 +116,15 @@ def object_findings(obj, params) -> list[Finding]:
             want = " x ".join(f"{d:.2f}" for d in expected)
             out.append(Finding(WARNING, "Size differs from settings",
                                f"Prints {text} mm; settings give {want} mm (object scaled or edited?)"))
+
+        n = len(bm.faces)
+        simplified = obj.modifiers.get(mesh_io.SIMPLIFY_MODIFIER) is not None
+        note = " (simplified)" if simplified else ""
+        if n > printcheck.MAX_TRIANGLES:
+            out.append(Finding(WARNING, "Heavy mesh",
+                               f"{n:,} triangles; some slicers slow down. Turn on Simplify Mesh"))
+        else:
+            out.append(Finding(OK, "Mesh size", f"{n:,} triangles{note}"))
     finally:
         bm.free()
     return out
@@ -122,8 +135,10 @@ def run_checks(obj) -> list[Finding]:
     params = obj.weathered_board.to_params()
     findings = object_findings(obj, params)
     # The core checks rebuild the board from its settings; the object
-    # checks above already cover watertightness of what is in the scene.
-    findings += [f for f in check(params) if f.title != "Watertight"]
+    # checks above already cover the mesh actually in the scene (shape,
+    # watertightness and, after any simplifying, its size).
+    skip = {"Watertight", "Mesh size", "Heavy mesh"}
+    findings += [f for f in check(params) if f.title not in skip]
     return findings
 
 
@@ -182,6 +197,7 @@ class WBOARD_OT_add(bpy.types.Operator):
             obj.weathered_board.copy_from(template)
             obj.weathered_board.seed = seed
             obj.weathered_board.is_board = True
+            mesh_io.apply_simplify(obj)
             # Lay boards out side by side along Y.
             width = float(np.ptp(verts[:, 1]))
             obj.location = context.scene.cursor.location.copy()

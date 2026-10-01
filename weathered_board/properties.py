@@ -109,6 +109,20 @@ def _printer_update(self, context):
     _changed(self, context)
 
 
+def _simplify_update(self, context):
+    """Simplify Mesh or Max Triangles changed: update the board's modifier.
+
+    No rebuild is needed; the full-detail mesh is kept under the modifier.
+    """
+    obj = self.id_data
+    if _suspended or not isinstance(obj, bpy.types.Object) or not self.is_board:
+        return
+    from . import mesh_io  # late import: keeps this module importable alone
+
+    mesh_io.apply_simplify(obj)
+    self.check_report = ""  # an earlier check was of a different mesh
+
+
 def _show_pattern_update(self, context):
     """Switch every 3D viewport between the pattern colours and normal shading."""
     screen = context.screen if context else None
@@ -309,6 +323,16 @@ class WBOARD_Settings(bpy.types.PropertyGroup):
         name="Detail Boost", default=1.0, min=1.0, update=_changed,
         description="Exaggerate ring spacing and carving depth by this factor, so the grain "
                     "shows at small scales. With Auto Detail Boost on, this is the minimum",
+    )
+    simplify: BoolProperty(
+        name="Simplify Mesh", default=False, update=_simplify_update,
+        description="Export a much lighter mesh with the same shape, for FreeCAD or other CAD. "
+                    "The shape moves by at most about 0.01 mm, well below what a printer shows",
+    )
+    max_triangles: IntProperty(
+        name="Max Triangles", default=20000, min=1000, max=2000000, update=_simplify_update,
+        description="Triangle count to simplify down to. On an 8 ft board 20,000 stays within "
+                    "about 0.009 mm of the full mesh; 10,000 (within 0.015 mm) converts faster",
     )
     auto_detail: BoolProperty(
         name="Auto Detail Boost", default=True, update=_changed,

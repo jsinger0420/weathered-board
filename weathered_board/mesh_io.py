@@ -77,3 +77,32 @@ def replace_mesh(obj: bpy.types.Object, verts: np.ndarray, tris: np.ndarray,
     obj.data = mesh
     if old.users == 0:
         bpy.data.meshes.remove(old)
+
+
+SIMPLIFY_MODIFIER = "WB Simplify"
+
+
+def apply_simplify(obj: bpy.types.Object) -> None:
+    """Add, update or remove the board's Simplify modifier to match its settings.
+
+    With Simplify Mesh on, a Decimate (collapse) modifier brings the board
+    down to about Max Triangles. The full-detail mesh stays underneath, so
+    turning Simplify off, or raising Max Triangles, needs no rebuild.
+    Export STL and Check Printability use the simplified mesh. On an 8 ft
+    1x6 at 1:48 (370,000 triangles in full), 20,000 triangles keeps every
+    point within about 0.009 mm of the full mesh and 10,000 within 0.015 mm:
+    the grain runs along the board, so long thin triangles can follow it.
+    """
+    settings = obj.weathered_board
+    mod = obj.modifiers.get(SIMPLIFY_MODIFIER)
+    full = len(obj.data.polygons)
+    if not settings.simplify or full <= settings.max_triangles:
+        if mod is not None:
+            obj.modifiers.remove(mod)
+        return
+    if mod is None:
+        mod = obj.modifiers.new(SIMPLIFY_MODIFIER, "DECIMATE")
+        mod.decimate_type = "COLLAPSE"
+        mod.use_collapse_triangulate = True
+    mod.ratio = settings.max_triangles / full
+

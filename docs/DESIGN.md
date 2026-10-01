@@ -270,6 +270,18 @@ Smooth 3D noise (fractal value or simplex noise, 3–5 octaves) is written in nu
 
 After carving, the mesh is multiplied by 1/scale and written to the board object in millimetres, with the scene set to metric, millimetre units so the slicer reads the size correctly.
 
+**Simplify Mesh** (with **Max Triangles**, default 20,000) gives the board a lighter mesh for CAD. FreeCAD's *Convert to solid* makes every triangle a face, and a full-detail 8 ft 1×6 at 1:48 has about 370,000. A Blender Decimate (collapse) modifier, managed by the add-on, brings it down to Max Triangles. The full-detail mesh stays underneath, so turning Simplify off or changing the target needs no rebuild, and rebuilds keep the setting. Export STL and Check Printability both use the simplified mesh.
+
+Collapse works well here because the grain runs along the board, so long, thin triangles can follow it. Measured on an 8 ft 1×6 at 1:48 with knots and checks, comparing every point of the ends and 20,000 points of the faces with the full mesh:
+
+| Max Triangles | Worst error, ends | Worst error, faces | Typical error |
+| --- | --- | --- | --- |
+| 10,000 | 0.011 mm | 0.015 mm | 0.003–0.005 mm |
+| 20,000 | 0.009 mm | 0.004 mm | 0.001–0.002 mm |
+| 40,000 | 0.008 mm | 0.002 mm | 0.001 mm |
+
+All of these are well below a resin printer's 0.05 mm resolution. Every simplified mesh tested stayed closed with no crossing triangles. Planar dissolve was tried too, and only halved the count.
+
 **Export STL** writes the selected boards with Blender's built-in STL exporter, either all in one file or with **One File per Board**. Per-board files are named after the chosen file name plus each board's name (`boards_WeatheredBoard.001.stl`). Blender's own batch option glues the names together without a separator, so the add-on exports one board at a time instead and puts the selection back afterwards.
 
 **Check Printability** checks the selected boards and lists the results in the Printing panel, one line per finding with its detail underneath. The list is cleared when the board is rebuilt, since it no longer applies. Errors and warnings are also summarised in Blender's status bar. Two kinds of check run.

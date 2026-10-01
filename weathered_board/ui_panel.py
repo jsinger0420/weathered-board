@@ -40,6 +40,8 @@ def _draw_print_info(layout, s):
         col.label(text=f"~{verts:,} vertices: too many, raise Resolution", icon="ERROR")
     else:
         col.label(text=f"~{verts:,} vertices", icon="MESH_DATA")
+    if s.simplify:
+        col.label(text=f"Simplified to ~{s.max_triangles:,} triangles", icon="MOD_DECIM")
     _draw_detail_info(col, params)
 
 
@@ -220,6 +222,11 @@ class WBOARD_PT_printing(bpy.types.Panel):
         col.prop(s, "min_feature")
         col.prop(s, "auto_detail")
         col.prop(s, "detail_boost", text="Detail Boost (min)" if s.auto_detail else "Detail Boost")
+        col = layout.column(align=True)
+        col.prop(s, "simplify")
+        sub = col.column(align=True)
+        sub.enabled = s.simplify
+        sub.prop(s, "max_triangles")
         row = layout.row(align=True)
         row.operator("wboard.check", icon="CHECKMARK")
         row.operator("wboard.export_stl", icon="EXPORT")

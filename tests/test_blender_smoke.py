@@ -273,3 +273,51 @@ def test_edge_group_buttons_have_their_own_tooltips(addon):
 
         group = "LONG"
     assert "length of the board" in WBOARD_OT_set_edges.description(bpy.context, Props)
+
+
+def _stl_triangles(path):
+    """Number of triangles in a binary STL file (from its header)."""
+    import struct
+
+    with open(path, "rb") as f:
+        f.seek(80)
+        return struct.unpack("<I", f.read(4))[0]
+
+
+def test_simplify_exports_a_lighter_mesh(addon, tmp_path):
+    """Simplify Mesh exports about Max Triangles, and the check still passes."""
+    obj = _small_board()
+    full = len(obj.data.polygons)
+    obj.weathered_board.max_triangles = 2000
+    obj.weathered_board.simplify = True
+    assert obj.modifiers.get("WB Simplify") is not None
+    assert len(obj.data.polygons) == full  # full detail is kept underneath
+    path = tmp_path / "board.stl"
+    bpy.ops.wboard.export_stl(filepath=str(path))
+    assert 1800 <= _stl_triangles(path) <= 2200 < full
+    bpy.ops.wboard.check()
+    report = obj.weathered_board.check_report
+    assert "(simplified)" in report and "ERROR" not in report
+
+
+def test_simplify_off_restores_full_detail_without_a_rebuild(addon):
+    """Turning Simplify off just removes the modifier; the mesh is untouched."""
+    obj = _small_board()
+    mesh = obj.data
+    obj.weathered_board.simplify = True
+    obj.weathered_board.simplify = False
+    assert obj.modifiers.get("WB Simplify") is None
+    assert obj.data == mesh
+
+
+def test_simplify_survives_a_rebuild(addon):
+    """Rebuilding a simplified board keeps it simplified to the same target."""
+    from weathered_board import operators
+
+    obj = _small_board()
+    obj.weathered_board.max_triangles = 3000
+    obj.weathered_board.simplify = True
+    operators.rebuild(obj)
+    mod = obj.modifiers.get("WB Simplify")
+    assert mod is not None
+    assert mod.ratio * len(obj.data.polygons) == pytest.approx(3000)
