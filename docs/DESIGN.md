@@ -69,10 +69,12 @@ ui_panel.py   Sidebar panel (settings stored on the object via properties.py)
 operators.py  Add / Regenerate / New Seed / Check / Export
      |
 +--- core/  (pure numpy, no bpy) ------------------------------+
-|  geometry.py   rounded box: 12 edge radii, normals, weights  |
+|  geometry.py   router-shaped box: 12 edge radii, normals     |
 |       |                         |                            |
-|  grain.py  long faces      ends.py  end semicircles  <-- seeded RNG + noise.py
+|  grain.py  long faces      ends.py  end semicircles  <-- rng.py streams + noise.py
 |       |                         |                            |
+|  patterns.py   both fields per vertex + colour preview       |
+|       |                                                      |
 |  weather.py    carve: erosion, knots, checks; inward only    |
 +--------------------------------------------------------------+
      |
@@ -91,39 +93,60 @@ Operators on the panel:
 - **Check Printability** — runs the checks in the output section and reports problems.
 - **Export STL** — exports the selected boards in millimetres.
 
+The panel also has:
+
+- **Live Update** (on by default) — changing a selected board's setting rebuilds it automatically. Changes are queued and the board rebuilds once they pause for 0.35 s, so dragging a slider rebuilds a few times rather than on every step.
+- **Show Grain Pattern** — colours the board by its ring pattern in the viewport: light earlywood, dark latewood, grey on faces that won't be weathered. The colours are stored as a colour attribute (`WB_Pattern`) and blend across rounded edges by face weight, exactly as the carving will.
+- **Printed size and vertex count**, worked out from the settings before anything is built, with a warning when the mesh would be too heavy.
+- Any build error, shown on the board's panel (live updates have no other way to report one).
+
+Boards can also be added from the 3D Viewport's *Add > Mesh* menu (Shift+A).
+
 ## Base mesh with rounded edges
 
-The base mesh is a dense grid on each of the six box faces, pulled onto a rounded box whose 12 edges each have their own radius. This gives even triangles everywhere and one rule for every edge, from sharp to fully round.
+The board is shaped the way a router shapes one: every edge is rounded along its full length with its own radius, and where edges meet at a corner their roundings simply intersect. Each edge is therefore an exact quarter-circle along its whole length, and changing one edge's radius changes nothing else.
 
 ### Edge radii
 
-Each edge's slider (0–1) is a fraction of the largest radius that edge can take: half the smaller of the two faces it joins. For a long edge on a 1.5 × 3.5 in board, 1 means a 0.75 in radius, which fully rounds that side. Because every radius is at most half of each neighbouring dimension, two edges on the same face can never overlap.
+Each edge's slider (0–1) is a fraction of the largest radius that edge can take: half the smaller of the two dimensions across its cross-section. For a long edge on a 1.5 × 3.5 in board, 1 means a 0.75 in radius, which fully rounds that side. Because every radius is at most half of each neighbouring dimension, two edges on the same face can never overlap.
+
+### The shape
+
+The board is the intersection of three extruded 2D rounded rectangles, one per cross-section, each with its own radius in each of its four corners:
+
+| Cross-section | Edges it rounds (they run along) |
+| --- | --- |
+| Y–Z | the 4 long edges (X) |
+| X–Z | `a_top`, `a_bottom`, `b_top`, `b_bottom` (Y) |
+| X–Y | `a_front`, `a_back`, `b_front`, `b_back` (Z) |
+
+Each cross-section has an exact signed distance, and the board's is the largest of the three (negative inside). With q = |p| − h + r in the section's two axes and r that quadrant's radius:
+
+```latex
+d_{\text{section}}(p) = \lVert \max(q, 0) \rVert + \min(\max(q_u, q_v), 0) - r, \qquad d(p) = \max(d_{YZ}, d_{XZ}, d_{XY})
+```
+
+The board is convex, which the mesher relies on.
 
 ### Building the mesh
 
 1. Convert the 12 sliders to radii in full-size units.
-2. Lay a grid of points on each flat face. Spacing = `resolution` × scale, so density matches what the print can show. Add extra grid lines inside each rounding band so every rounded edge gets at least 8 segments.
-3. Map each point onto the rounded surface (below).
-4. Triangulate each grid and merge the duplicate points along the 12 seams, giving one closed surface.
-5. Store per vertex: position, exact surface normal, and six face weights.
+2. Lay a grid of points on each flat face of the box. Spacing = `resolution` × scale, so density matches what the print can show. Each axis has one shared list of grid coordinates, refined inside each rounding band so every rounded edge gets at least 8 segments.
+3. Merge the duplicate points along the 12 seams. They coincide exactly because every face uses the same axis coordinates, giving one closed surface.
+4. Leave points on the flat parts where they are. Move every other point inward along the ray toward c, the point clamped to the inner box shrunk by each face's widest radius, until it reaches the surface (bisection on d). Every c is inside the board, so each ray crosses the surface exactly once.
+5. Store per vertex: position, normal and six face weights.
 
-### The mapping
+Because the rays converge on points inside a convex shape, neighbouring grid points land next to each other and no triangle can face inward. A 96 in 1×6 at 1:48 builds in about half a second (185,000 vertices); 1:12 takes about 7 seconds (2.3 million). The builder refuses more than 4 million vertices and asks for a coarser resolution.
 
-For each point p, three insets a = (a_x, a_y, a_z) say how far each axis is rounded at that spot. Near a long edge, a_y and a_z both equal that edge's radius; near an end edge parallel to Y, a_x and a_z equal its radius; and so on. The point is clamped to the inner box shrunk by a, then pushed back out along an ellipsoid with semi-axes a:
+### Corners
 
-```latex
-c = \operatorname{clamp}(p,\; -h + a,\; h - a), \qquad u = \frac{A^{-1}(p - c)}{\lVert A^{-1}(p - c) \rVert}, \qquad p' = c + A\,u, \qquad A = \operatorname{diag}(a)
-```
+Where radii meet at a corner, their roundings cross along a crease, exactly as on a routed board. With three equal radii each corner keeps (2 − √2) r³ of its r³ cube, one eighth of a Steinmetz tricylinder; the tests check the volume against this. A first version blended the radii into a smooth corner instead. When neighbouring radii differed much, it pushed the larger radius along the smaller edges and left visible waists and lumps, so it was dropped. Creases are a fraction of a millimetre at print scale, and later weathering softens them further.
 
-The normal is A⁻¹u, normalized. On a flat region p = c, so nothing moves. Along the middle of an edge, the two insets are equal and the edge is an exact quarter-circle.
+### Normals and face weights
 
-### Corners where different radii meet
+Flat-face vertices take their face's axis as normal. On a sharp edge or corner (radius 0) a vertex belongs fully to every face it touches, with the sum of those axes as normal. Rounded vertices take the mesh's own area-weighted normal.
 
-At each of the 8 corners three edges meet, and they may disagree: the long edge wants a_y = 0.2 in while the end edge beside it wants a_y = 0.5 in. Each inset therefore blends, along the edge, from the edge's own radius to the corner value (the largest of the radii meeting there), using a smoothstep over a distance equal to that corner value. The edge stays a true circle for most of its length and becomes slightly elliptical just before the corner, which closes the corner smoothly with no gaps or creases.
-
-### Face weights
-
-Face weights say how much each vertex belongs to each face: 1 on a flat face, sliding smoothly from one face to the next across a rounded edge (squared normal components). Weathering is multiplied by these weights, so an unselected face stays perfectly flat and the change happens over the rounded edge rather than as a step. On a sharp edge (radius 0) a seam vertex has weight 1 for both faces.
+Face weights say how much each vertex belongs to each face: 1 on a flat face, sliding smoothly from one face to the next across a rounded edge (squared normal components). Weathering is multiplied by these weights, so an unselected face stays perfectly flat and the change happens over the rounded edge rather than as a step.
 
 ## Weathering: long-face ridges and end semicircles
 
@@ -133,17 +156,17 @@ Every weathering value is a function of the vertex's 3D position, never of a fac
 
 Each board gets a hidden pith line (the centre of the tree) running roughly along X:
 
-- It sits outside the board's cross-section, 0.3–3 board widths away, in a random direction. Close and centred behind a face gives strong cathedral arches on that face; far away gives straighter grain.
+- It sits outside the board, 0.3–3 board widths beyond the edge of the cross-section. In 70% of boards it is behind the top or bottom face (within ±20°), as in flat-sawn lumber, which gives cathedral arches on that face. The rest point any direction, giving straight or quarter-sawn grain.
 - It tilts by up to about 2° from the X axis, so rings run out of the long faces at a slant, as they do in real boards.
-- It wobbles gently along its length, driven by low-frequency noise scaled by `grain_waviness`.
+- It wobbles gently along its length (about every 400 mm, by up to 0.15 board widths × `grain_waviness`).
 
 For each vertex, R is its distance from the pith line, bent by smooth 3D noise so rings are not perfect circles. The ring phase is then:
 
 ```latex
-\phi = \operatorname{frac}\!\left(\frac{R + w\,\mathrm{fbm}(p)}{s(R)}\right)
+\phi = \operatorname{frac}\big(N(R + w\,\mathrm{fbm}(p))\big), \qquad N(R) = n_0 + \int_0^R \frac{dr}{s(r)}
 ```
 
-s(R) is the local ring spacing, varied slowly within the `ring_spacing` range so some years are wide and some narrow, and w is the waviness amplitude.
+N(R) counts the rings from the pith out to R, and n₀ is a random offset. The ring width s(r) varies smoothly within the `ring_spacing` range, changing about every five rings, so some years are wide and some narrow; N is tabulated once per board and interpolated. The bending amplitude is w = 2 × mean spacing × `grain_waviness`, with noise features about 300 mm long and 25 mm across (two octaves), so grain lines wander along the board without turning ragged.
 
 On the long faces, lines of equal R form long, curving, nested arches (cathedral grain) on the face nearest the pith and near-parallel wavy lines on the faces beside it. This field is used only for the four long faces.
 
@@ -151,9 +174,9 @@ On the long faces, lines of equal R form long, curving, nested arches (cathedral
 
 Each end gets its own simple pattern instead of true growth rings: evenly spaced semicircles centred on one edge of that end face.
 
-1. Pick the centre edge from `end_center` (with `random`, each end draws its own, weighted toward the long `top`/`bottom` edges so the arcs span the width). Pick a point along that edge, within the middle 50% of it, so the two ends of one board differ.
+1. Pick the centre edge from `end_center` (with `random`, each end draws its own: top or bottom 40% each, front or back 10% each, so the arcs usually span the width). Pick a point along that edge, within the middle 50% of it, so the two ends of one board differ.
 2. For a vertex on the end, d = its 2D distance from the centre point within the end's plane.
-3. Ring phase φ = frac(d / `end_spacing` + `end_wobble` × small noise). With wobble 0 the rings are perfect, evenly spaced semicircles.
+3. Ring phase φ = frac(d / `end_spacing` + ½ `end_wobble` × noise), so wobble 1 shifts rings by up to half a ring. With wobble 0 the rings are perfect, evenly spaced semicircles.
 4. The same ridge profile E(φ) as the long faces turns rings into raised ridges between carved grooves, so the style matches.
 
 Arcs larger than the face are simply cut off by the face border, so a centre on the bottom edge shows full half-rings near it and partial arcs toward the top corners. The end pattern and the long-face grain do not line up at the edge between them; the edge rounding and `edge_margin` soften that meeting.
@@ -189,7 +212,7 @@ Safety limits: `depth` is capped at a quarter of the thickness so opposite faces
 
 ### Randomization
 
-One `numpy.random.Generator` is created from the seed and passed to every step, so nothing else draws random numbers. Per board it chooses:
+Each part of the board (grain, ends, knots, checks, patch map) draws from its own `numpy` generator, spawned from the board's seed (`core/rng.py`). Nothing else draws random numbers. Because the streams are separate, changing one part's settings never reshuffles another: a new end spacing leaves the grain exactly as it was. New streams are only ever appended to the list, so existing seeds keep their boards. Per board the streams choose:
 
 | What varies | Range |
 | --- | --- |
@@ -225,20 +248,20 @@ Check Printability runs before export and reports, per board:
 
 ### Tests
 
-- [ ] Watertight: every output mesh is manifold with consistent normals.
+- [x] Watertight: every output mesh is manifold with consistent normals.
 - [ ] Envelope: no vertex outside the original box, for many random seeds.
 - [ ] Unselected faces: vertices with full weight on an unselected face do not move.
 - [ ] Repeatable: same seed and settings give identical meshes; different seeds differ.
-- [ ] Per-edge rounding: each of the 12 sliders changes only its own edge; mixed radii at a corner leave no gaps, creases or folded triangles.
+- [x] Per-edge rounding: each of the 12 sliders sets only its own edge's radius; mixed radii at a corner leave no gaps or folded triangles.
 - [ ] End pattern: ring spacing measured on the end equals `end_spacing` with wobble 0.
-- [ ] Scale: printed size equals full size / N within 0.1%.
+- [x] Scale: printed size equals full size / N within 0.1%.
 - [ ] Core tests run with plain Python (no Blender); add-on tests run with `blender --background --python`.
 
 ### Build plan
 
-1. **Rounded box.** Core mesh builder with 12 edge radii, corner blending and face weights; test every rounding combination.
-2. **Blender shell.** Extension manifest, properties, panel, Add and Regenerate operators, `foreach_set` mesh loading, so progress can be seen in Blender from step 3 on.
-3. **Patterns.** Virtual log for long faces and semicircles for ends; show φ as vertex colour on the uncarved board to tune them before any carving.
+1. **Rounded box.** Done: router-style board with 12 edge radii, normals and face weights; 42 geometry tests.
+2. **Blender shell.** Done: manifest, properties, sidebar panel, Add (also in Shift+A), Regenerate, New Seed, edge-group buttons, Export STL, live update, printed size and vertex estimate, error display.
+3. **Patterns.** Done: vectorized Perlin noise, virtual log for long faces, stylized semicircles for ends, separate random streams, colour preview in the viewport; 71 pattern tests.
 4. **Carving.** Erosion profile, face selection, inward-only displacement and limits.
 5. **Character.** Knots, checks, patchiness, separate end depth.
 6. **Printing.** Printability checks, STL export, FDM and resin defaults; test prints at 1:24, 1:48 and 1:87.

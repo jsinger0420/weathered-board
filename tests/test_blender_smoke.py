@@ -49,3 +49,67 @@ def test_export_stl_in_mm(addon, tmp_path):
     path = tmp_path / "board.stl"
     assert bpy.ops.wboard.export_stl(filepath=str(path)) == {"FINISHED"}
     assert path.stat().st_size > 84
+
+
+def test_board_has_pattern_colours(addon):
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.wboard.add()
+    mesh = bpy.context.active_object.data
+    attr = mesh.color_attributes.get("WB_Pattern")
+    assert attr is not None
+    assert mesh.color_attributes.active_color.name == "WB_Pattern"
+
+
+def test_live_update_rebuilds_a_changed_board(addon):
+    from weathered_board import properties
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.context.scene.weathered_board.live_update = True
+    bpy.ops.wboard.add()
+    obj = bpy.context.active_object
+    before = obj.dimensions.x
+    obj.weathered_board.length = 48.0  # half of the default 96 in
+    assert obj.name in properties._pending
+    properties._flush_pending()  # what the timer would run
+    bpy.context.view_layer.update()
+    assert obj.dimensions.x == pytest.approx(before / 2, rel=1e-3)
+
+
+def test_live_update_off_leaves_the_board_alone(addon):
+    from weathered_board import properties
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.context.scene.weathered_board.live_update = False
+    bpy.ops.wboard.add()
+    obj = bpy.context.active_object
+    obj.weathered_board.length = 48.0
+    assert obj.name not in properties._pending
+
+
+def test_errors_are_kept_on_the_board(addon):
+    from weathered_board import operators
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.context.scene.weathered_board.live_update = False
+    bpy.ops.wboard.add()
+    obj = bpy.context.active_object
+    obj.weathered_board.depth = 1000.0  # deeper than the board allows
+    assert operators.rebuild(obj)
+    assert "Depth" in obj.weathered_board.last_error
+
+
+def test_add_menu_entry(addon):
+    from weathered_board import ui_panel
+
+    assert ui_panel.draw_add_menu in bpy.types.VIEW3D_MT_mesh_add._dyn_ui_initialize()
+
+
+def test_panel_print_info_draws(addon):
+    from unittest import mock
+
+    from weathered_board import ui_panel
+
+    layout = mock.MagicMock()
+    ui_panel._draw_print_info(layout, bpy.context.scene.weathered_board)
+    labels = [c.kwargs.get("text", "") for c in layout.column.return_value.label.call_args_list]
+    assert any(t.startswith("Printed: 50.80 x 2.91 x 0.79 mm") for t in labels)

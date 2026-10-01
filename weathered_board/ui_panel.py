@@ -6,7 +6,8 @@ otherwise it edits the settings used for the next board added.
 
 import bpy
 
-from .core.params import EDGE_GROUPS
+from .core.geometry import MAX_VERTICES, estimate_vertices
+from .core.params import EDGE_GROUPS, ParamError
 
 
 def _settings(context):
@@ -14,6 +15,24 @@ def _settings(context):
     if obj is not None and obj.weathered_board.is_board:
         return obj.weathered_board, True
     return context.scene.weathered_board, False
+
+
+def _draw_print_info(layout, s):
+    """Printed size and how heavy the mesh will be, before building it."""
+    try:
+        params = s.to_params()
+        params.validate()
+        verts = estimate_vertices(params)
+    except ParamError as err:
+        layout.label(text=str(err), icon="ERROR")
+        return
+    size = " x ".join(f"{d / params.scale:.2f}" for d in params.size)
+    col = layout.column(align=True)
+    col.label(text=f"Printed: {size} mm")
+    if verts > MAX_VERTICES:
+        col.label(text=f"~{verts:,} vertices: too many, raise Resolution", icon="ERROR")
+    else:
+        col.label(text=f"~{verts:,} vertices", icon="MESH_DATA")
 
 
 class WBOARD_PT_main(bpy.types.Panel):
@@ -36,6 +55,14 @@ class WBOARD_PT_main(bpy.types.Panel):
             row.operator("wboard.regenerate", icon="FILE_REFRESH")
             row.operator("wboard.new_seed", icon="MOD_NOISE")
 
+        scene_s = context.scene.weathered_board
+        row = layout.row(align=True)
+        row.prop(scene_s, "live_update", toggle=True, icon="AUTO")
+        row.prop(scene_s, "show_pattern", toggle=True, icon="TEXTURE")
+
+        if on_board and s.last_error:
+            layout.label(text=s.last_error, icon="ERROR")
+
         box = layout.box()
         box.label(text="Size (full size)")
         box.prop(s, "units")
@@ -44,6 +71,7 @@ class WBOARD_PT_main(bpy.types.Panel):
         col.prop(s, "width")
         col.prop(s, "thickness")
         box.prop(s, "scale_n")
+        _draw_print_info(box, s)
 
         box = layout.box()
         box.label(text="Faces to weather")
@@ -138,6 +166,11 @@ class WBOARD_PT_printing(bpy.types.Panel):
         col.prop(s, "min_feature")
         col.prop(s, "detail_boost")
         layout.operator("wboard.export_stl", icon="EXPORT")
+
+
+def draw_add_menu(self, _context):
+    """Entry in the 3D Viewport's Add > Mesh menu (Shift+A)."""
+    self.layout.operator("wboard.add", text="Weathered Board", icon="MESH_CUBE")
 
 
 classes = (

@@ -10,7 +10,7 @@ A Blender 4.2+ add-on that generates wooden boards with realistic weathering, fo
 
 The full design is in [docs/DESIGN.md](docs/DESIGN.md).
 
-**Status:** scaffold. The add-on installs, shows its panel, and adds, regenerates, reseeds and exports boards, but the board is still a plain box. The rounded box and weathering come next, following the build plan in the design doc.
+**Status:** build steps 1–3 done. The add-on adds, regenerates, reseeds and exports boards with a separate rounding on each of the 12 edges, rebuilds them live as settings change, and can colour them by their grain and end-ring patterns (*Show Grain Pattern*). Carving the weathering into the surface comes next (step 4 in the design doc).
 
 ## Repository layout
 
@@ -25,9 +25,11 @@ weathered-board/
 │   ├── mesh_io.py            numpy arrays -> Blender mesh
 │   └── core/                 Pure numpy, never imports bpy
 │       ├── params.py         Settings, faces, edges, validation
-│       ├── geometry.py       Rounded box (placeholder box for now)
-│       ├── grain.py          Long-face ring field
+│       ├── geometry.py       Router-shaped board with 12 edge radii
+│       ├── grain.py          Long-face ring field (the virtual log)
 │       ├── ends.py           End semicircles
+│       ├── patterns.py       Both fields per vertex + colour preview
+│       ├── rng.py            Separate seeded random stream per part
 │       ├── weather.py        Carving
 │       └── noise.py          Vectorized fractal noise
 ├── tests/                    pytest: core tests + Blender smoke tests
@@ -61,7 +63,7 @@ Pick one:
    - macOS: `~/Library/Application Support/Blender/4.2/extensions/user_default/weathered_board`
    - Linux: `~/.config/blender/4.2/extensions/user_default/weathered_board`
 
-The panel is in the 3D Viewport sidebar (press N), on the **Weathered Board** tab.
+The panel is in the 3D Viewport sidebar (press N), on the **Weathered Board** tab. Boards can also be added with Shift+A > Mesh > Weathered Board. Turn on *Show Grain Pattern* to see the ring patterns as colour; it switches the viewport to Solid shading with attribute colours.
 
 ## Building and installing
 

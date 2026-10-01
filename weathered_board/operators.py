@@ -6,7 +6,7 @@ from bpy.props import EnumProperty, FloatProperty, StringProperty
 from bpy_extras.io_utils import ExportHelper
 
 from . import mesh_io
-from .core import ParamError, build_board
+from .core import ParamError, build
 from .core.params import EDGE_GROUPS
 
 SEED_MAX = 2**31 - 1
@@ -23,9 +23,22 @@ def _active_board(context):
     return None
 
 
-def _build(settings):
-    """Run the core; returns (verts, tris) or raises ParamError."""
-    return build_board(settings.to_params())
+def rebuild(obj) -> str:
+    """Rebuild a board's mesh from its own settings.
+
+    Returns an error message, or "" on success. The message is also kept
+    on the board so the panel can show it (live updates have no operator
+    to report through).
+    """
+    settings = obj.weathered_board
+    try:
+        result = build(settings.to_params())
+    except (ParamError, NotImplementedError) as err:
+        settings.last_error = str(err)
+        return str(err)
+    mesh_io.replace_mesh(obj, result.vertices, result.triangles, result.preview)
+    settings.last_error = ""
+    return ""
 
 
 class WBOARD_OT_add(bpy.types.Operator):
@@ -45,11 +58,12 @@ class WBOARD_OT_add(bpy.types.Operator):
             params = template.to_params()
             params.seed = seed
             try:
-                verts, tris = build_board(params)
+                result = build(params)
             except (ParamError, NotImplementedError) as err:
                 self.report({"ERROR"}, str(err))
                 return {"CANCELLED"}
-            obj = mesh_io.new_board_object(context, "WeatheredBoard", verts, tris)
+            verts = result.vertices
+            obj = mesh_io.new_board_object(context, "WeatheredBoard", verts, result.triangles, result.preview)
             obj.weathered_board.copy_from(template)
             obj.weathered_board.seed = seed
             obj.weathered_board.is_board = True
@@ -75,13 +89,10 @@ class WBOARD_OT_regenerate(bpy.types.Operator):
         return _active_board(context) is not None
 
     def execute(self, context):
-        obj = _active_board(context)
-        try:
-            verts, tris = _build(obj.weathered_board)
-        except (ParamError, NotImplementedError) as err:
-            self.report({"ERROR"}, str(err))
+        error = rebuild(_active_board(context))
+        if error:
+            self.report({"ERROR"}, error)
             return {"CANCELLED"}
-        mesh_io.replace_mesh(obj, verts, tris)
         return {"FINISHED"}
 
 
@@ -97,8 +108,18 @@ class WBOARD_OT_new_seed(bpy.types.Operator):
         return _active_board(context) is not None
 
     def execute(self, context):
-        _active_board(context).weathered_board.seed = _random_seed()
-        return bpy.ops.wboard.regenerate()
+        obj = _active_board(context)
+        from . import properties
+        properties._suspended = True  # rebuild once below, not via live update
+        try:
+            obj.weathered_board.seed = _random_seed()
+        finally:
+            properties._suspended = False
+        error = rebuild(obj)
+        if error:
+            self.report({"ERROR"}, error)
+            return {"CANCELLED"}
+        return {"FINISHED"}
 
 
 class WBOARD_OT_set_edges(bpy.types.Operator):
@@ -126,8 +147,15 @@ class WBOARD_OT_set_edges(bpy.types.Operator):
     def execute(self, context):
         obj = _active_board(context)
         settings = obj.weathered_board if (self.target == "OBJECT" and obj) else context.scene.weathered_board
-        for edge in EDGE_GROUPS[self.group]:
-            setattr(settings, f"round_{edge}", self.value)
+        from . import properties
+        properties._suspended = True  # one rebuild for the group, not four
+        try:
+            for edge in EDGE_GROUPS[self.group]:
+                setattr(settings, f"round_{edge}", self.value)
+        finally:
+            properties._suspended = False
+        if self.target == "OBJECT" and obj is not None and context.scene.weathered_board.live_update:
+            rebuild(obj)
         return {"FINISHED"}
 
 
