@@ -122,7 +122,7 @@ def worst(findings: list[Finding]) -> str:
 
 
 class WBOARD_OT_add(bpy.types.Operator):
-    """Add weathered boards using the settings in the panel"""
+    """Add a new weathered board (or Count boards) at the 3D cursor, using the settings in this panel and a random seed unless Lock Seed is on"""
 
     bl_idname = "wboard.add"
     bl_label = "Add Weathered Board"
@@ -158,7 +158,7 @@ class WBOARD_OT_add(bpy.types.Operator):
 
 
 class WBOARD_OT_regenerate(bpy.types.Operator):
-    """Rebuild the selected board from its settings, keeping its seed"""
+    """Rebuild the selected board from its current settings. Keeps its seed, so only the settings you changed make a difference"""
 
     bl_idname = "wboard.regenerate"
     bl_label = "Regenerate"
@@ -177,7 +177,7 @@ class WBOARD_OT_regenerate(bpy.types.Operator):
 
 
 class WBOARD_OT_new_seed(bpy.types.Operator):
-    """Roll a new seed for the selected board and rebuild it"""
+    """Give the selected board a new random seed and rebuild it: same settings, a different grain, knots and cracks"""
 
     bl_idname = "wboard.new_seed"
     bl_label = "New Seed"
@@ -203,7 +203,7 @@ class WBOARD_OT_new_seed(bpy.types.Operator):
 
 
 class WBOARD_OT_set_edges(bpy.types.Operator):
-    """Set the rounding of a group of edges at once"""
+    """Set the rounding of a group of edges at once. Each edge can still be adjusted on its own afterwards"""
 
     bl_idname = "wboard.set_edges"
     bl_label = "Set Edge Rounding"
@@ -211,15 +211,32 @@ class WBOARD_OT_set_edges(bpy.types.Operator):
 
     group: EnumProperty(
         name="Edges",
+        description="Which edges to set",
         items=[
-            ("ALL", "All Edges", ""),
-            ("LONG", "Long Edges", ""),
-            ("END_A", "End A Edges", ""),
-            ("END_B", "End B Edges", ""),
+            ("ALL", "All Edges", "All 12 edges"),
+            ("LONG", "Long Edges", "The 4 edges that run the length of the board"),
+            ("END_A", "End A Edges", "The 4 edges around end A (the left end)"),
+            ("END_B", "End B Edges", "The 4 edges around end B (the right end)"),
         ],
     )
-    value: FloatProperty(name="Rounding", default=0.15, min=0.0, max=1.0, subtype="FACTOR")
+    value: FloatProperty(
+        name="Rounding", default=0.15, min=0.0, max=1.0, subtype="FACTOR",
+        description="0 = sharp corner, 1 = as round as the board allows",
+    )
     target: StringProperty(default="SCENE", options={"HIDDEN"})
+
+    GROUP_HELP = {
+        "ALL": "Set the rounding of all 12 edges at once",
+        "LONG": "Set the rounding of the 4 edges that run the length of the board",
+        "END_A": "Set the rounding of the 4 edges around end A (the left end)",
+        "END_B": "Set the rounding of the 4 edges around end B (the right end)",
+    }
+
+    @classmethod
+    def description(cls, context, properties):
+        """A tooltip for each of the All / Long / End A / End B buttons."""
+        return cls.GROUP_HELP.get(properties.group, cls.__doc__) + \
+            ". Each edge can still be adjusted on its own afterwards"
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
@@ -240,7 +257,7 @@ class WBOARD_OT_set_edges(bpy.types.Operator):
 
 
 class WBOARD_OT_check(bpy.types.Operator):
-    """Check the selected boards for printing problems"""
+    """Check the selected boards for printing problems: holes, crossing surfaces, size, ring detail, carving depth, wall thickness and mesh size. Results are listed below"""
 
     bl_idname = "wboard.check"
     bl_label = "Check Printability"
@@ -270,7 +287,7 @@ class WBOARD_OT_check(bpy.types.Operator):
 
 
 class WBOARD_OT_export_stl(bpy.types.Operator, ExportHelper):
-    """Export the selected boards as STL in millimetres"""
+    """Export the selected boards as STL files in millimetres, ready for a slicer or FreeCAD"""
 
     bl_idname = "wboard.export_stl"
     bl_label = "Export STL"

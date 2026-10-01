@@ -182,3 +182,46 @@ def test_export_one_file_per_board(addon, tmp_path):
     assert files == sorted([f"boards_{first.name}.stl", f"boards_{second.name}.stl"])
     # The selection is put back as it was.
     assert first.select_get() and second.select_get()
+
+
+def _visible_props(rna):
+    return [p for p in rna.properties if p.identifier != "rna_type" and not p.is_hidden]
+
+
+def test_every_setting_has_a_tooltip(addon):
+    from weathered_board.properties import WBOARD_Settings
+
+    missing = []
+    for p in _visible_props(WBOARD_Settings.bl_rna):
+        if len(p.description.strip()) < 20:
+            missing.append(p.identifier)
+        if p.type == "ENUM":
+            missing += [f"{p.identifier}.{i.identifier}" for i in p.enum_items if not i.description.strip()]
+    assert not missing, f"settings without a helpful tooltip: {missing}"
+
+
+def test_every_button_has_a_tooltip(addon):
+    from weathered_board import operators
+
+    missing = []
+    for cls in operators.classes:
+        if len((cls.__doc__ or "").strip()) < 20:
+            missing.append(cls.bl_idname)
+        op = getattr(bpy.ops.wboard, cls.bl_idname.split(".")[1])
+        for p in _visible_props(op.get_rna_type()):
+            if p.identifier in ("filepath", "check_existing", "filter_glob"):
+                continue  # from Blender's file browser
+            if not p.description.strip():
+                missing.append(f"{cls.bl_idname}.{p.identifier}")
+            if p.type == "ENUM":
+                missing += [f"{cls.bl_idname}.{p.identifier}.{i.identifier}"
+                            for i in p.enum_items if not i.description.strip()]
+    assert not missing, f"buttons without a tooltip: {missing}"
+
+
+def test_edge_group_buttons_have_their_own_tooltips(addon):
+    from weathered_board.operators import WBOARD_OT_set_edges
+
+    class Props:
+        group = "LONG"
+    assert "length of the board" in WBOARD_OT_set_edges.description(bpy.context, Props)

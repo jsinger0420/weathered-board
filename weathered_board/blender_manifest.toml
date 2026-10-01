@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "weathered_board"
-version = "0.1.0"
+version = "0.1.1"
 name = "Weathered Board"
 tagline = "Generate weathered wooden boards for 3D printing"
 maintainer = "John <john@singerlinks.com>"

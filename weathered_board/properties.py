@@ -22,20 +22,44 @@ from bpy.props import (
 from .core.params import BoardParams, EDGES, FACES, PRINTER_DEFAULTS, to_mm
 
 UNIT_ITEMS = [
-    ("IN", "Inches", "Full-size dimensions in inches"),
-    ("MM", "Millimetres", "Full-size dimensions in millimetres"),
+    ("IN", "Inches", "Length, width and thickness are entered in inches"),
+    ("MM", "Millimetres", "Length, width and thickness are entered in millimetres"),
 ]
 PRINTER_ITEMS = [
-    ("RESIN", "Resin", "Resin printer: 0.05 mm resolution, 0.1 mm smallest feature"),
-    ("FDM", "FDM", "Filament printer: 0.1 mm resolution, 0.4 mm smallest feature"),
+    ("RESIN", "Resin", "Resin printer: sets Resolution to 0.05 mm and Smallest Feature to 0.1 mm"),
+    ("FDM", "FDM", "Filament printer: sets Resolution to 0.1 mm and Smallest Feature to 0.4 mm"),
 ]
 END_CENTER_ITEMS = [
-    ("RANDOM", "Random", "Each end picks its own edge"),
-    ("TOP", "Top", ""),
-    ("BOTTOM", "Bottom", ""),
-    ("FRONT", "Front", ""),
-    ("BACK", "Back", ""),
+    ("RANDOM", "Random", "Each end picks its own edge, usually the top or bottom, so the arcs span the width"),
+    ("TOP", "Top", "Centre the end rings on the top edge of each end"),
+    ("BOTTOM", "Bottom", "Centre the end rings on the bottom edge of each end"),
+    ("FRONT", "Front", "Centre the end rings on the front edge of each end"),
+    ("BACK", "Back", "Centre the end rings on the back edge of each end"),
 ]
+
+# Plain-language names for faces, used in tooltips.
+FACE_HELP = {
+    "top": "the top face (the wide face facing up)",
+    "bottom": "the bottom face. Left flat, it sits cleanly on the print bed without supports",
+    "front": "the front edge face (the narrow long side facing you)",
+    "back": "the back edge face (the narrow long side facing away)",
+    "end_a": "end A (the left end, toward -X)",
+    "end_b": "end B (the right end, toward +X)",
+}
+EDGE_HELP = {
+    "top_front": "where the top meets the front, along the board",
+    "top_back": "where the top meets the back, along the board",
+    "bottom_front": "where the bottom meets the front, along the board",
+    "bottom_back": "where the bottom meets the back, along the board",
+    "a_top": "where end A meets the top",
+    "a_bottom": "where end A meets the bottom",
+    "a_front": "where end A meets the front",
+    "a_back": "where end A meets the back",
+    "b_top": "where end B meets the top",
+    "b_bottom": "where end B meets the bottom",
+    "b_front": "where end B meets the front",
+    "b_back": "where end B meets the back",
+}
 
 
 LIVE_UPDATE_DELAY = 0.35  # seconds of quiet before a queued board rebuilds
@@ -98,26 +122,48 @@ def _show_pattern_update(self, context):
 def _round(name):
     return FloatProperty(
         name=name.replace("_", " ").title(),
-        description="Rounding: 0 = sharp, 1 = fully rounded",
+        description=f"Rounding of the edge {EDGE_HELP[name]}. "
+                    "0 = sharp corner, 1 = as round as the board allows "
+                    "(a radius of half the thinner side it joins)",
         default=0.15, min=0.0, max=1.0, subtype="FACTOR", update=_changed,
     )
 
 
 def _weather(face, default=True):
-    return BoolProperty(name=face.replace("_", " ").title(), default=default, update=_changed)
+    return BoolProperty(
+        name=face.replace("_", " ").title(),
+        description=f"Carve weathering into {FACE_HELP[face]}. "
+                    "Unticked faces stay perfectly flat",
+        default=default, update=_changed,
+    )
 
 
 class WBOARD_Settings(bpy.types.PropertyGroup):
     is_board: BoolProperty(default=False, options={"HIDDEN"})
 
     # Size and scale
-    units: EnumProperty(name="Units", items=UNIT_ITEMS, default="IN", update=_changed)
-    length: FloatProperty(name="Length", default=96.0, min=0.001, update=_changed)
-    width: FloatProperty(name="Width", default=5.5, min=0.001, update=_changed)
-    thickness: FloatProperty(name="Thickness", default=1.5, min=0.001, update=_changed)
+    units: EnumProperty(
+        name="Units", items=UNIT_ITEMS, default="IN", update=_changed,
+        description="Units for Length, Width and Thickness. Weathering settings are always in millimetres",
+    )
+    length: FloatProperty(
+        name="Length", default=96.0, min=0.001, update=_changed,
+        description="Full-size length of the real board, before scaling (e.g. 96 for an 8 ft board)",
+    )
+    width: FloatProperty(
+        name="Width", default=5.5, min=0.001, update=_changed,
+        description="Full-size actual width, before scaling. Use the actual size, "
+                    "not the nominal one: a nominal 1x6 is 5.5 in wide",
+    )
+    thickness: FloatProperty(
+        name="Thickness", default=1.5, min=0.001, update=_changed,
+        description="Full-size actual thickness, before scaling. A nominal 2x is "
+                    "1.5 in thick, a nominal 1x is 0.75 in",
+    )
     scale_n: FloatProperty(
-        name="Scale 1:", description="Reduction ratio, e.g. 48 for 1:48",
-        default=48.0, min=1.0, update=_changed,
+        name="Scale 1:", default=48.0, min=1.0, update=_changed,
+        description="Model scale as 1:N. The full-size board is divided by N, "
+                    "e.g. 48 for O scale (1:48), 87 for HO (1:87), 1 for full size",
     )
 
     # Faces to weather (bottom off by default: flat base prints best)
@@ -143,57 +189,132 @@ class WBOARD_Settings(bpy.types.PropertyGroup):
     round_b_back: _round("b_back")
 
     # Weathering (full-size mm)
-    depth: FloatProperty(name="Depth (mm)", default=3.0, min=0.0, update=_changed)
-    edge_margin: FloatProperty(name="Edge Margin (mm)", default=0.0, min=0.0, update=_changed)
-    ring_spacing_min: FloatProperty(name="Ring Spacing Min (mm)", default=3.0, min=0.01, update=_changed)
-    ring_spacing_max: FloatProperty(name="Ring Spacing Max (mm)", default=6.0, min=0.01, update=_changed)
-    ridge_sharpness: FloatProperty(name="Ridge Sharpness", default=0.6, min=0.0, max=1.0, subtype="FACTOR", update=_changed)
-    grain_waviness: FloatProperty(name="Grain Waviness", default=0.4, min=0.0, max=1.0, subtype="FACTOR", update=_changed)
-    end_spacing: FloatProperty(name="End Ring Spacing (mm)", default=4.0, min=0.01, update=_changed)
-    end_center: EnumProperty(name="End Centre", items=END_CENTER_ITEMS, default="RANDOM", update=_changed)
-    end_wobble: FloatProperty(name="End Wobble", default=0.1, min=0.0, max=1.0, subtype="FACTOR", update=_changed)
-    use_end_depth: BoolProperty(name="Separate End Depth", default=False, update=_changed)
-    end_depth: FloatProperty(name="End Depth (mm)", default=3.0, min=0.0, update=_changed)
-    knots_min: IntProperty(name="Knots Min", default=0, min=0, update=_changed)
-    knots_max: IntProperty(name="Knots Max", default=2, min=0, update=_changed)
-    checks: FloatProperty(name="Checks", default=0.3, min=0.0, max=1.0, subtype="FACTOR", update=_changed)
-    patchiness: FloatProperty(name="Patchiness", default=0.5, min=0.0, max=1.0, subtype="FACTOR", update=_changed)
+    depth: FloatProperty(
+        name="Depth (mm)", default=3.0, min=0.0, update=_changed,
+        description="How deep the worn grooves between the grain ridges go, in full-size mm. "
+                    "Detail Boost multiplies it; it never goes past a quarter of the thickness",
+    )
+    edge_margin: FloatProperty(
+        name="Edge Margin (mm)", default=0.0, min=0.0, update=_changed,
+        description="Width of a smooth, unworn border around each weathered face, in full-size mm. "
+                    "0 = the wear runs right out over the edges",
+    )
+    ring_spacing_min: FloatProperty(
+        name="Ring Spacing Min (mm)", default=3.0, min=0.01, update=_changed,
+        description="Narrowest growth ring on the long faces, in full-size mm. "
+                    "Smaller = finer, denser grain lines",
+    )
+    ring_spacing_max: FloatProperty(
+        name="Ring Spacing Max (mm)", default=6.0, min=0.01, update=_changed,
+        description="Widest growth ring on the long faces, in full-size mm. Rings vary between "
+                    "Min and Max, like fast and slow growth years",
+    )
+    ridge_sharpness: FloatProperty(
+        name="Ridge Sharpness", default=0.6, min=0.0, max=1.0, subtype="FACTOR", update=_changed,
+        description="Shape of the grain ridges. 0 = soft, rolling waves; "
+                    "1 = narrow, crisp ridges between wide, scooped grooves",
+    )
+    grain_waviness: FloatProperty(
+        name="Grain Waviness", default=0.4, min=0.0, max=1.0, subtype="FACTOR", update=_changed,
+        description="How much the grain lines on the long faces wander. "
+                    "0 = smooth, regular grain; 1 = wavy, irregular grain",
+    )
+    end_spacing: FloatProperty(
+        name="End Ring Spacing (mm)", default=4.0, min=0.01, update=_changed,
+        description="Distance between the semicircular rings on the board ends, in full-size mm",
+    )
+    end_center: EnumProperty(
+        name="End Centre", items=END_CENTER_ITEMS, default="RANDOM", update=_changed,
+        description="Which edge of each end the semicircular rings are centred on",
+    )
+    end_wobble: FloatProperty(
+        name="End Wobble", default=0.1, min=0.0, max=1.0, subtype="FACTOR", update=_changed,
+        description="Hand-made unevenness in the end rings. "
+                    "0 = perfect, evenly spaced semicircles; 1 = up to half a ring of wobble",
+    )
+    use_end_depth: BoolProperty(
+        name="Separate End Depth", default=False, update=_changed,
+        description="Give the ends their own carving depth instead of using Depth. "
+                    "End grain often weathers more deeply than the faces",
+    )
+    end_depth: FloatProperty(
+        name="End Depth (mm)", default=3.0, min=0.0, update=_changed,
+        description="Carving depth on the two ends, in full-size mm, when Separate End Depth is on",
+    )
+    knots_min: IntProperty(
+        name="Knots Min", default=0, min=0, update=_changed,
+        description="Fewest knots per board. Each board picks a number between Min and Max. "
+                    "The grain flows around knots and their hard cores stand proud",
+    )
+    knots_max: IntProperty(
+        name="Knots Max", default=2, min=0, update=_changed,
+        description="Most knots per board. Set Min and Max to 0 for no knots",
+    )
+    checks: FloatProperty(
+        name="Checks", default=0.3, min=0.0, max=1.0, subtype="FACTOR", update=_changed,
+        description="Amount of cracks (checks): straight splits along the long faces and "
+                    "radial cracks on the ends. 0 = none; 1 = about 6 per metre and 4 per end",
+    )
+    patchiness: FloatProperty(
+        name="Patchiness", default=0.5, min=0.0, max=1.0, subtype="FACTOR", update=_changed,
+        description="How unevenly the wear varies over the board. 0 = even wear everywhere; "
+                    "1 = some sheltered areas barely worn at all",
+    )
 
     # Printing
-    printer: EnumProperty(name="Printer", items=PRINTER_ITEMS, default="RESIN", update=_printer_update)
-    resolution: FloatProperty(name="Resolution (mm)", default=0.05, min=0.005, precision=3, update=_changed)
-    min_feature: FloatProperty(name="Smallest Feature (mm)", default=0.1, min=0.01, precision=3, update=_changed)
+    printer: EnumProperty(
+        name="Printer", items=PRINTER_ITEMS, default="RESIN", update=_printer_update,
+        description="Type of 3D printer. Choosing one sets sensible Resolution and "
+                    "Smallest Feature values, which you can then adjust",
+    )
+    resolution: FloatProperty(
+        name="Resolution (mm)", default=0.05, min=0.005, precision=3, update=_changed,
+        description="Spacing between mesh points on the printed board, in mm. Smaller = finer "
+                    "detail but a heavier mesh and slower builds",
+    )
+    min_feature: FloatProperty(
+        name="Smallest Feature (mm)", default=0.1, min=0.01, precision=3, update=_changed,
+        description="Smallest detail your printer can reliably reproduce, in mm. Used by "
+                    "Auto Detail Boost and Check Printability",
+    )
     detail_boost: FloatProperty(
-        name="Detail Boost",
-        description="Exaggerate ring spacing and carving depth by this factor",
-        default=1.0, min=1.0, update=_changed,
+        name="Detail Boost", default=1.0, min=1.0, update=_changed,
+        description="Exaggerate ring spacing and carving depth by this factor, so the grain "
+                    "shows at small scales. With Auto Detail Boost on, this is the minimum",
     )
     auto_detail: BoolProperty(
-        name="Auto Detail Boost",
-        description="Raise the boost as needed so the rings are big enough to "
-                    "carve and print at this scale",
-        default=True, update=_changed,
+        name="Auto Detail Boost", default=True, update=_changed,
+        description="Raise the boost just enough that the rings are big enough to carve and "
+                    "print at this scale. Off = use Detail Boost exactly",
     )
 
     # Randomness
-    seed: IntProperty(name="Seed", default=0, min=0, update=_changed)
-    lock_seed: BoolProperty(
-        name="Lock Seed",
-        description="Use the seed above for new boards instead of a random one",
-        default=False,
+    seed: IntProperty(
+        name="Seed", default=0, min=0, update=_changed,
+        description="Number that picks this board's random pattern. The same seed and settings "
+                    "always give the same board; New Seed picks a fresh one",
     )
-    count: IntProperty(name="Count", default=1, min=1, max=100)
+    lock_seed: BoolProperty(
+        name="Lock Seed", default=False,
+        description="Use the seed above for new boards instead of a random one, "
+                    "to repeat a board you liked",
+    )
+    count: IntProperty(
+        name="Count", default=1, min=1, max=100,
+        description="How many boards Add Weathered Board creates at once, side by side, "
+                    "each with its own pattern",
+    )
 
     # Read from the Scene's copy only
     live_update: BoolProperty(
-        name="Live Update",
-        description="Rebuild the selected board automatically when its settings change",
-        default=True,
+        name="Live Update", default=True,
+        description="Rebuild the selected board automatically shortly after you change a "
+                    "setting. Turn off to change several settings, then click Regenerate",
     )
     show_pattern: BoolProperty(
         name="Show Grain Pattern",
-        description="Colour the board by its ring pattern in the viewport "
-                    "(grey = faces that won't be weathered)",
+        description="Colour boards by their pattern in the viewport: light earlywood, dark "
+                    "ridges, darker knots and cracks, grey for faces that won't be weathered",
         default=False, update=_show_pattern_update,
     )
     last_error: StringProperty(default="", options={"HIDDEN"})
