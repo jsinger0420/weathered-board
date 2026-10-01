@@ -50,3 +50,35 @@ def test_rounding_out_of_range():
 
 def test_bottom_not_weathered_by_default():
     assert board().faces["bottom"] is False
+
+
+# --------------------------------------------------------------------------
+# Detail boost
+# --------------------------------------------------------------------------
+
+def test_auto_boost_makes_rings_printable_at_small_scales():
+    # 1x6 at 1:48 on a resin printer: true 3 mm rings would print at
+    # 0.06 mm, finer than 4 mesh vertices (0.2 mm) can carve.
+    p = board(scale=48.0)
+    assert p.needed_boost() == pytest.approx(0.2 * 48 / 3.0)
+    assert p.boost() == pytest.approx(3.2)
+
+
+def test_auto_boost_is_not_needed_at_large_scales():
+    assert board(scale=1.0).boost() == 1.0
+
+
+def test_manual_boost_when_auto_is_off():
+    p = board(scale=48.0, auto_detail=False, detail_boost=1.5)
+    assert p.boost() == 1.5
+
+
+def test_manual_boost_above_auto_wins():
+    assert board(scale=48.0, detail_boost=5.0).boost() == 5.0
+
+
+def test_boosted_depth_never_passes_a_quarter_of_the_thickness():
+    p = board(scale=48.0, depth=3.0)  # 3 mm x 3.2 = 9.6 mm, more than 19.05 / 4
+    assert p.carve_depth() == pytest.approx(p.thickness / 4)
+    q = board(scale=1.0, depth=3.0, end_depth=1.0)
+    assert q.carve_depth() == 3.0 and q.carve_depth(end=True) == 1.0

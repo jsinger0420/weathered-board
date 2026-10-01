@@ -46,6 +46,7 @@ class BoxMesh:
     triangles: np.ndarray  # (M, 3) int32, wound outward
     normals: np.ndarray  # (N, 3) float64, unit
     face_weights: np.ndarray  # (N, 6) float64, columns in FACE_NAMES order
+    rounded: np.ndarray  # (N,) bool: on a rounded edge or corner (moved by the mesher)
 
 
 # --------------------------------------------------------------------------
@@ -267,4 +268,4 @@ def rounded_box(params: BoardParams) -> BoxMesh:
 
     verts, moved = _project(board, pts)
     normals, weights = _normals_and_weights(pts, verts, tris, moved, half)
-    return BoxMesh(verts, tris, normals, weights)
+    return BoxMesh(verts, tris, normals, weights, moved)

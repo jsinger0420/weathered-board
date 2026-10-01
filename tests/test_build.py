@@ -27,3 +27,13 @@ def test_scaled_size(params):
     size = verts.max(axis=0) - verts.min(axis=0)
     expected = np.array(params.size) / params.scale
     assert np.allclose(size, expected, rtol=1e-3)
+
+
+def test_default_board_is_weathered_at_1_48(params):
+    from core import build
+
+    params.resolution = 0.05  # resin default
+    r = build(params)
+    # Auto boost lets the rings carve: deepest cut is the quarter-thickness
+    # cap, printed at 1:48.
+    assert r.depth.max() == pytest.approx(params.thickness / 4 / 48, rel=0.02)

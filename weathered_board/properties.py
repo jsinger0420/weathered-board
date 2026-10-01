@@ -163,7 +163,17 @@ class WBOARD_Settings(bpy.types.PropertyGroup):
     printer: EnumProperty(name="Printer", items=PRINTER_ITEMS, default="RESIN", update=_printer_update)
     resolution: FloatProperty(name="Resolution (mm)", default=0.05, min=0.005, precision=3, update=_changed)
     min_feature: FloatProperty(name="Smallest Feature (mm)", default=0.1, min=0.01, precision=3, update=_changed)
-    detail_boost: FloatProperty(name="Detail Boost", default=1.0, min=1.0, update=_changed)
+    detail_boost: FloatProperty(
+        name="Detail Boost",
+        description="Exaggerate ring spacing and carving depth by this factor",
+        default=1.0, min=1.0, update=_changed,
+    )
+    auto_detail: BoolProperty(
+        name="Auto Detail Boost",
+        description="Raise the boost as needed so the rings are big enough to "
+                    "carve and print at this scale",
+        default=True, update=_changed,
+    )
 
     # Randomness
     seed: IntProperty(name="Seed", default=0, min=0, update=_changed)
@@ -214,6 +224,7 @@ class WBOARD_Settings(bpy.types.PropertyGroup):
             resolution=self.resolution,
             min_feature=self.min_feature,
             detail_boost=self.detail_boost,
+            auto_detail=self.auto_detail,
             seed=self.seed,
         )
 

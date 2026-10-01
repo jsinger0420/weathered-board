@@ -31,7 +31,7 @@ class VirtualLog:
         self.half = 0.5 * np.array(params.size, dtype=float)
         hy, hz = self.half[1], self.half[2]
         width = params.width
-        boost = params.detail_boost
+        boost = params.boost()
 
         # Where the pith sits around the board, seen from its end. Most
         # boards are flat-sawn, with the pith behind a wide face (top or

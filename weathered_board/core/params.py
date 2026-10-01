@@ -52,6 +52,10 @@ PRINTER_DEFAULTS = {
 }
 
 
+MIN_RING_VERTICES = 4  # vertices across one ring for it to carve cleanly
+MAX_DEPTH_FRACTION = 0.25  # carving never deeper than this share of the thickness
+
+
 class ParamError(ValueError):
     """Raised when settings describe a board that cannot be built."""
 
@@ -89,10 +93,30 @@ class BoardParams:
     resolution: float = 0.05  # printed mm between vertices
     min_feature: float = 0.1  # printed mm
     detail_boost: float = 1.0
+    auto_detail: bool = True  # raise the boost as needed so rings can print
 
     seed: int = 0
 
     # ---- derived values -------------------------------------------------
+
+    def needed_boost(self) -> float:
+        """Smallest boost that lets the finest rings print: each ring at
+        least MIN_RING_VERTICES vertices and 2 smallest-features wide."""
+        finest = min(self.ring_spacing[0], self.end_spacing)
+        printed_needed = max(MIN_RING_VERTICES * self.resolution, 2.0 * self.min_feature)
+        return max(1.0, printed_needed * self.scale / finest)
+
+    def boost(self) -> float:
+        """The boost actually applied to ring spacing and carving depth."""
+        if self.auto_detail:
+            return max(self.detail_boost, self.needed_boost())
+        return self.detail_boost
+
+    def carve_depth(self, end: bool = False) -> float:
+        """Full-size carving depth after the boost, never past a quarter of
+        the thickness (so opposite faces can't meet)."""
+        base = self.end_depth if (end and self.end_depth is not None) else self.depth
+        return min(base * self.boost(), MAX_DEPTH_FRACTION * self.thickness)
 
     @property
     def size(self) -> tuple[float, float, float]:

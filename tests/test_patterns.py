@@ -17,7 +17,8 @@ from core.rng import streams
 
 
 def params(**kw):
-    base = dict(length=600.0, width=139.7, thickness=19.05, scale=1.0, resolution=2.0, seed=11)
+    base = dict(length=600.0, width=139.7, thickness=19.05, scale=1.0, resolution=2.0, seed=11,
+                auto_detail=False)
     base.update(kw)
     return BoardParams(**base)
 

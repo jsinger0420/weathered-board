@@ -7,7 +7,8 @@ otherwise it edits the settings used for the next board added.
 import bpy
 
 from .core.geometry import MAX_VERTICES, estimate_vertices
-from .core.params import EDGE_GROUPS, ParamError
+from .core.params import EDGE_GROUPS, MAX_DEPTH_FRACTION, ParamError
+from .core.weather import detail_factor
 
 
 def _settings(context):
@@ -33,6 +34,26 @@ def _draw_print_info(layout, s):
         col.label(text=f"~{verts:,} vertices: too many, raise Resolution", icon="ERROR")
     else:
         col.label(text=f"~{verts:,} vertices", icon="MESH_DATA")
+    _draw_detail_info(col, params)
+
+
+def _draw_detail_info(col, params):
+    """How the rings and carving will come out at this scale."""
+    if not any(params.faces.values()) or params.depth <= 0:
+        return
+    boost = params.boost()
+    finest = min(params.ring_spacing[0], params.end_spacing)
+    ring_mm = finest * boost / params.scale
+    cut_mm = params.carve_depth() / params.scale
+    if boost > 1.0:
+        how = "auto" if params.auto_detail and boost > params.detail_boost else "manual"
+        col.label(text=f"Detail boost {boost:.1f}x ({how})", icon="ZOOM_IN")
+    col.label(text=f"Rings {ring_mm:.2f} mm apart, cut up to {cut_mm:.3f} mm")
+    if params.carve_depth() < params.depth * boost - 1e-9:
+        col.label(text=f"Depth capped at {MAX_DEPTH_FRACTION:.0%} of thickness", icon="INFO")
+    if detail_factor(finest, params) < 1.0:
+        col.label(text="Rings too fine for this Resolution:", icon="ERROR")
+        col.label(text="carving fades. Use Auto Detail Boost.")
 
 
 class WBOARD_PT_main(bpy.types.Panel):
@@ -164,7 +185,8 @@ class WBOARD_PT_printing(bpy.types.Panel):
         col = layout.column(align=True)
         col.prop(s, "resolution")
         col.prop(s, "min_feature")
-        col.prop(s, "detail_boost")
+        col.prop(s, "auto_detail")
+        col.prop(s, "detail_boost", text="Detail Boost (min)" if s.auto_detail else "Detail Boost")
         layout.operator("wboard.export_stl", icon="EXPORT")
 
 

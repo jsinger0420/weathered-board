@@ -35,7 +35,7 @@ class EndRings:
     def __init__(self, params: BoardParams, rng: np.random.Generator):
         half = 0.5 * np.array(params.size, dtype=float)
         hy, hz = half[1], half[2]
-        self.spacing = params.end_spacing * params.detail_boost
+        self.spacing = params.end_spacing * params.boost()
         self.wobble = params.end_wobble
 
         self.centres: dict[str, EndCentre] = {}

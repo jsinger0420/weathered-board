@@ -52,7 +52,8 @@ Each of the 12 edges is named by the two faces it joins:
 | `patchiness` | 0–1 | 0.5 | How unevenly the depth varies across a face |
 | `printer` | `FDM` or `resin` | `resin` | Sets `min_feature` and `resolution` defaults |
 | `min_feature` | printed mm | 0.1 (resin), 0.4 (FDM) | Smallest ridge spacing the printer can hold; the add-on warns below it |
-| `detail_boost` | float ≥ 1 | 1 | Exaggerates spacing and depth for small scales where true detail would be too fine to print |
+| `detail_boost` | float ≥ 1 | 1 | Exaggerates ring spacing and carving depth for small scales where true detail would be too fine to print |
+| `auto_detail` | bool | on | Raises the boost as needed so the finest rings print at least 4 vertices and 2 smallest-features wide; `detail_boost` then acts as a minimum |
 | `resolution` | printed mm | 0.05 (resin), 0.1 (FDM) | Target spacing between vertices in the final mesh |
 | `seed` | int | random | Stored on the object; a "New seed" button rolls a fresh board |
 | `count` | int | 1 | Number of boards to add, laid out side by side |
@@ -183,7 +184,13 @@ Arcs larger than the face are simply cut off by the face border, so a centre on 
 
 ### Turning rings into ridges
 
-In weathered wood the soft earlywood wears away and the hard latewood stands up as ridges. So the erosion profile E(φ) is high across most of each ring and drops to zero at a narrow latewood band near φ = 1. `ridge_sharpness` narrows that band and steepens its sides: low values give rolling waves, high values give crisp ridges between scooped valleys.
+In weathered wood the soft earlywood wears away and the hard latewood stands up as ridges. So the erosion profile E(φ) is 0 on the latewood ridge (φ = 0.88, the same band the colour preview shows dark) and rises to 1 deepest in the earlywood. The ridge's sides rise over a half-width hw = 0.5 − 0.44 × `ridge_sharpness` of a ring, as a half cosine; 20% of the depth curves the valley floor too, so valleys are scooped rather than flat. Sharpness 0 gives rolling waves; sharpness 1 gives narrow ridges between wide valleys. E is periodic, so there is no seam between one year and the next.
+
+**Fine rings and coarse meshes.** A ridge wall that falls on too few mesh vertices carves as a jagged staircase wherever rings cross the grid at an angle, as the end semicircles always do. So:
+
+- Where a ridge wall would get fewer than 4 vertices, the ridge is widened just enough to get 4.
+- Where a whole ring gets fewer than 4 vertices, the carving fades, reaching zero at 2. The ridges stay on the original surface either way, so the board keeps its size.
+- **Auto Detail Boost** (on by default) avoids both. It multiplies ring spacing and depth by the smallest factor that makes the finest rings print at least 4 vertices and 2 smallest-features wide. A 1×6 at 1:48 on a resin printer gets 3.2×: rings print 0.2 mm apart, where true scale would be 0.06 mm. The boosted depth is still capped at a quarter of the thickness.
 
 ### Extra features
 
@@ -193,11 +200,27 @@ In weathered wood the soft earlywood wears away and the hard latewood stands up 
 
 ### Combining into a displacement
 
-```latex
-D_f(p) = \text{depth}_f \cdot \text{patch}(p) \cdot \max\!\big(E(\phi_f(p)),\, \text{check}_f(p)\big)\cdot \text{taper}(p), \qquad v = -\sum_{f} s_f\, w_f(p)\, D_f(p)\, n_f
-```
+Each selected face f asks for a full depth Dn_f (its boosted depth, eased near borders as below) and a carved depth D_f = Dn_f · E(φ_f), where φ_f is the virtual log for long faces and the semicircles for ends. A vertex blends its faces by face weight into one Dn and one D. Every term depends only on the vertex's position, so a vertex shared by faces gets one answer and the mesh stays watertight.
 
-φ_f is the ring phase for face f: the virtual log for long faces, the semicircles for ends. s_f is 1 for a selected face and 0 otherwise, w_f the face weight and n_f the face's outward axis. Every term depends only on the vertex's position, so a vertex shared by two faces gets one answer and the mesh stays watertight. On a rounded edge the two faces' patterns blend; on a sharp edge a seam vertex is pushed in from both sides.
+The carving is then applied in two parts, each of which cannot fold the mesh:
+
+1. **Recession.** The whole surface sinks by the smooth depth Dn. Each vertex p moves toward its own point c inside the board: p clamped to an inner box shrunk by at least three times the deepest cut (and by the rounding bands). It moves Dn along its dominant axis and proportionally along the others:
+
+   ```latex
+   p' = p - D_n \, \frac{p - c}{\max_k |p_k - c_k|}
+   ```
+
+   On a flat face this is a straight cut of depth Dn. Near an edge p − c tilts toward the edge, so the faces and the edge recede together: grooves run out over the edge, with no raised lip. Each vertex moves along its own ray toward c, by less than its distance from c.
+
+2. **Ridges.** The latewood is built back up by Dn − D along the surface normal, like raising a height map. The normals used are eased across corner creases (12 smoothing passes on rounded vertices), because raising ridges along sharply diverging normals at a crease would pull neighbours apart. Any ridge that would poke past the original surface is shortened.
+
+**Where depths meet.** Where a weathered face meets an unweathered one, or a shallower one (a long face beside an end with its own depth), the deeper face eases down to its neighbour's depth before their shared edge. It eases over three times the difference, so the depth never changes faster than 1 mm per 3 mm. The edge rounding can be a fraction of a millimetre wide, too narrow for the change.
+
+**Repair.** A final pass checks every triangle against its uncarved orientation. Where one has turned over, the ridge height at its corners is halved, repeatedly. If that is not enough, the whole carving there is eased back. The uncarved board never folds, so this always ends clean. It touches at most about 0.5% of vertices, at corners with extreme settings, and none in typical boards.
+
+The reported depth is the cut measured straight into the faces (the largest move along any one axis). At an edge the corner also recedes diagonally, as a box shrunk evenly on every face does.
+
+Knots, checks and patchiness (step 5) will multiply into D_f.
 
 ## Inset, randomization and blending
 
@@ -206,9 +229,9 @@ D_f(p) = \text{depth}_f \cdot \text{patch}(p) \cdot \max\!\big(E(\phi_f(p)),\, \
 The weathering is inset in two ways:
 
 - **Inward only.** D is never negative, so every vertex moves into the board. The highest ridges sit exactly on the original surface and everything else is cut below it. A 1.5 × 3.5 × 96 in board still measures 1.5 × 3.5 × 96 in across its ridge tops, which matters when boards must fit a model.
-- **Optional border.** With `edge_margin` > 0, a taper fades the depth to zero over that distance from each face's border, leaving a smooth frame of original surface around the weathered area.
+- **Optional border.** With `edge_margin` > 0, the depth fades to zero at each face's border over `edge_margin` (or over three times the depth, if that is wider, to keep the fade gentle), leaving a smooth frame of original surface around the weathered area.
 
-Safety limits: `depth` is capped at a quarter of the thickness so opposite faces can never meet, and within the rounded edges the depth is capped at 0.8 r so the curve can't fold over itself. A final check confirms every vertex lies inside the original bounding box.
+Safety limits: `depth` (after the detail boost) is capped at a quarter of the thickness, so opposite faces can never meet. Folding is prevented by the two-part carving and the repair pass above. Tests confirm every vertex lies inside the original bounding box.
 
 ### Randomization
 
@@ -241,7 +264,7 @@ Check Printability runs before export and reports, per board:
 
 - **Watertight:** no open edges or non-manifold vertices (via `bmesh`).
 - **No self-intersections:** carving never folds the surface over itself.
-- **Printable detail:** the printed ridge spacing (`ring_spacing` and `end_spacing` ÷ scale × `detail_boost`) is at least `min_feature`; if not, it suggests a `detail_boost` value that would fix it.
+- **Printable detail:** the printed ridge spacing (`ring_spacing` and `end_spacing` ÷ scale × boost) is at least `min_feature`; if not, it suggests a `detail_boost` value that would fix it. (With Auto Detail Boost on this always holds; the panel already shows the printed ring spacing and cut depth.)
 - **Wall thickness:** the thinnest point between opposite faces after carving stays above 2 × `min_feature`.
 - **Flat base:** notes whether the bottom is left unweathered, which prints best without supports.
 - **Size:** the triangle count, with a warning above about 2 million, which some slicers handle slowly.
@@ -249,8 +272,9 @@ Check Printability runs before export and reports, per board:
 ### Tests
 
 - [x] Watertight: every output mesh is manifold with consistent normals.
-- [ ] Envelope: no vertex outside the original box, for many random seeds.
-- [ ] Unselected faces: vertices with full weight on an unselected face do not move.
+- [x] No folds: no carved triangle turns over, for any rounding and face selection.
+- [x] Envelope: no vertex outside the original box, for many random seeds.
+- [x] Unselected faces: vertices with full weight on an unselected face do not move.
 - [ ] Repeatable: same seed and settings give identical meshes; different seeds differ.
 - [x] Per-edge rounding: each of the 12 sliders sets only its own edge's radius; mixed radii at a corner leave no gaps or folded triangles.
 - [ ] End pattern: ring spacing measured on the end equals `end_spacing` with wobble 0.
@@ -262,7 +286,7 @@ Check Printability runs before export and reports, per board:
 1. **Rounded box.** Done: router-style board with 12 edge radii, normals and face weights; 42 geometry tests.
 2. **Blender shell.** Done: manifest, properties, sidebar panel, Add (also in Shift+A), Regenerate, New Seed, edge-group buttons, Export STL, live update, printed size and vertex estimate, error display.
 3. **Patterns.** Done: vectorized Perlin noise, virtual log for long faces, stylized semicircles for ends, separate random streams, colour preview in the viewport; 71 pattern tests.
-4. **Carving.** Erosion profile, face selection, inward-only displacement and limits.
+4. **Carving.** Done: erosion profile with scooped valleys, face selection, two-part fold-safe carving, easing between faces of different depth, auto detail boost, ring anti-aliasing, panel feedback on ring size and cut; 27 carving tests.
 5. **Character.** Knots, checks, patchiness, separate end depth.
 6. **Printing.** Printability checks, STL export, FDM and resin defaults; test prints at 1:24, 1:48 and 1:87.
 7. **Presets.** Common looks (barn siding, dock plank, fence board) saved as Blender operator presets.
