@@ -113,3 +113,72 @@ def test_panel_print_info_draws(addon):
     ui_panel._draw_print_info(layout, bpy.context.scene.weathered_board)
     labels = [c.kwargs.get("text", "") for c in layout.column.return_value.label.call_args_list]
     assert any(t.startswith("Printed: 50.80 x 2.91 x 0.79 mm") for t in labels)
+
+
+def _small_board():
+    """Add a quick-to-build board (2 ft) and return it."""
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    s = bpy.context.scene.weathered_board
+    s.live_update = False
+    s.length = 24.0
+    bpy.ops.wboard.add()
+    return bpy.context.active_object
+
+
+def test_check_printability_stores_a_report(addon):
+    obj = _small_board()
+    assert bpy.ops.wboard.check() == {"FINISHED"}
+    report = obj.weathered_board.check_report
+    levels = [line.split("\t")[0] for line in report.splitlines()]
+    assert "Watertight" in report and "No self-intersections" in report and "Printed size" in report
+    assert "ERROR" not in levels
+
+
+def test_check_notices_a_scaled_board(addon):
+    obj = _small_board()
+    obj.scale = (1.1, 1.0, 1.0)
+    bpy.context.view_layer.update()
+    bpy.ops.wboard.check()
+    assert "Size differs from settings" in obj.weathered_board.check_report
+
+
+def test_check_notices_a_hole(addon):
+    import bmesh as bm_mod
+
+    obj = _small_board()
+    bm = bm_mod.new()
+    bm.from_mesh(obj.data)
+    bm.faces.ensure_lookup_table()
+    bm_mod.ops.delete(bm, geom=[bm.faces[0]], context="FACES_ONLY")
+    bm.to_mesh(obj.data)
+    bm.free()
+    # Run without a window, Blender turns the operator's error report into
+    # an exception; in the app it shows as an error message instead.
+    with pytest.raises(RuntimeError, match="have problems"):
+        bpy.ops.wboard.check()
+    assert "Open edges" in obj.weathered_board.check_report
+
+
+def test_rebuilding_clears_the_report(addon):
+    from weathered_board import operators
+
+    obj = _small_board()
+    bpy.ops.wboard.check()
+    assert obj.weathered_board.check_report
+    operators.rebuild(obj)
+    assert obj.weathered_board.check_report == ""
+
+
+def test_export_one_file_per_board(addon, tmp_path):
+    _small_board()
+    first = bpy.context.active_object
+    bpy.ops.wboard.add()
+    second = bpy.context.active_object
+    first.select_set(True)
+    second.select_set(True)
+    path = tmp_path / "boards.stl"
+    assert bpy.ops.wboard.export_stl(filepath=str(path), one_file_per_board=True) == {"FINISHED"}
+    files = sorted(p.name for p in tmp_path.iterdir())
+    assert files == sorted([f"boards_{first.name}.stl", f"boards_{second.name}.stl"])
+    # The selection is put back as it was.
+    assert first.select_get() and second.select_get()

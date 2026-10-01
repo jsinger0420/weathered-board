@@ -10,7 +10,7 @@ A Blender 4.2+ add-on that generates wooden boards with realistic weathering, fo
 
 The full design is in [docs/DESIGN.md](docs/DESIGN.md).
 
-**Status:** build steps 1–5 done. The add-on builds boards with a separate rounding on each of the 12 edges and carves weathering into the chosen faces: earlywood worn into grooves, latewood left standing as ridges, curving grain on the long faces and semicircles on the ends, knots the grain flows around, cracks, and patchy wear. Auto Detail Boost exaggerates the rings just enough to print at small scales. Printability checks and presets come next (steps 6 and 7 in the design doc).
+**Status:** build steps 1–6 done. The add-on builds boards with a separate rounding on each of the 12 edges and carves weathering into the chosen faces: curving grain on the long faces, semicircles on the ends, knots, cracks and patchy wear. Check Printability lists any printing problems in the panel, and Export STL writes one file or one per board. Presets for common looks come next (step 7 in the design doc).
 
 ## Repository layout
 
@@ -32,6 +32,7 @@ weathered-board/
 │       ├── patterns.py       All fields per vertex + colour preview
 │       ├── rng.py            Separate seeded random stream per part
 │       ├── weather.py        Carving: ridges, recession, fold repair
+│       ├── printcheck.py     Printability checks on the built board
 │       └── noise.py          Vectorized fractal noise
 ├── tests/                    pytest: core tests + Blender smoke tests
 ├── docs/DESIGN.md            Design document

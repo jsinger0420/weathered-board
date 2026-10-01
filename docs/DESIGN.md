@@ -78,6 +78,7 @@ operators.py  Add / Regenerate / New Seed / Check / Export
 |  patterns.py   all fields per vertex + colour preview        |
 |       |                                                      |
 |  weather.py    carve: erosion, knots, checks; inward only    |
+|  printcheck.py printability checks on the built board       |
 +--------------------------------------------------------------+
      |
 mesh_io.py    shrink by scale, write Blender mesh, print checks
@@ -92,8 +93,8 @@ Operators on the panel:
 - **Add Weathered Board** — creates a new board object from the current settings.
 - **Regenerate** — rebuilds the selected board's mesh after settings change, keeping its seed.
 - **New Seed** — rolls a new seed and regenerates, for a different board of the same size.
-- **Check Printability** — runs the checks in the output section and reports problems.
-- **Export STL** — exports the selected boards in millimetres.
+- **Check Printability** — runs the checks in the output section and lists the results in the Printing panel.
+- **Export STL** — exports the selected boards in millimetres, in one file or one file per board.
 
 The panel also has:
 
@@ -267,16 +268,31 @@ Smooth 3D noise (fractal value or simplex noise, 3–5 octaves) is written in nu
 
 ### Output for printing
 
-After carving, the mesh is multiplied by 1/scale and written to the board object in millimetres, with the scene set to metric, millimetre units so the slicer reads the size correctly. Export STL uses Blender's built-in exporter on the selected boards, one file per board or all in one.
+After carving, the mesh is multiplied by 1/scale and written to the board object in millimetres, with the scene set to metric, millimetre units so the slicer reads the size correctly.
 
-Check Printability runs before export and reports, per board:
+**Export STL** writes the selected boards with Blender's built-in STL exporter, either all in one file or with **One File per Board**. Per-board files are named after the chosen file name plus each board's name (`boards_WeatheredBoard.001.stl`). Blender's own batch option glues the names together without a separator, so the add-on exports one board at a time instead and puts the selection back afterwards.
 
-- **Watertight:** no open edges or non-manifold vertices (via `bmesh`).
-- **No self-intersections:** carving never folds the surface over itself.
-- **Printable detail:** the printed ridge spacing (`ring_spacing` and `end_spacing` ÷ scale × boost) is at least `min_feature`; if not, it suggests a `detail_boost` value that would fix it. (With Auto Detail Boost on this always holds; the panel already shows the printed ring spacing and cut depth.)
-- **Wall thickness:** the thinnest point between opposite faces after carving stays above 2 × `min_feature`.
-- **Flat base:** notes whether the bottom is left unweathered, which prints best without supports.
-- **Size:** the triangle count, with a warning above about 2 million, which some slicers handle slowly.
+**Check Printability** checks the selected boards and lists the results in the Printing panel, one line per finding with its detail underneath. The list is cleared when the board is rebuilt, since it no longer applies. Errors and warnings are also summarised in Blender's status bar. Two kinds of check run.
+
+On the board object as it is in the scene, since it may have been edited, scaled or rotated after it was built:
+
+| Check | Finding |
+| --- | --- |
+| Watertight | Error if any edge is not shared by exactly two faces (via `bmesh`) |
+| Self-intersections | Error if any two triangles cross, via Blender's BVH tree. Triangles that only touch at a shared corner are ignored: Blender reports those as overlapping, and they are not. |
+| Printed size | The real exported size; a warning if it differs from the settings by more than 0.5% (a scaled or edited object) |
+
+On the board rebuilt from its settings (`core/printcheck.py`, pure numpy):
+
+| Check | Finding |
+| --- | --- |
+| Ring detail | Error if the mesh is too coarse to carve the rings at all, a warning if they carve but print finer than `min_feature`. Both suggest the Detail Boost that fixes it |
+| Carving depth | Warning if the deepest cut is under half of `min_feature` and may not show |
+| Wall thickness | Error if any dimension, minus the deepest cuts on its two opposite faces, is under 2 × `min_feature`. That is a safe lower bound, as if the deepest cuts lined up |
+| Base | Notes whether the bottom is flat (prints straight on the bed) or weathered (needs supports or a raft) |
+| Mesh size | Warning above 2 million triangles, which some slicers handle slowly |
+
+Examples, for a 1×6: at 1:48 with default settings every check passes (rings 0.2 mm apart, deepest cut 0.14 mm, walls at least 0.26 mm). At 1:87 the board itself is only 0.22 mm thick, and the wall check fails once it is carved. With Auto Detail Boost off at 1:48, the ring check fails and suggests a boost of 3.2.
 
 ### Tests
 
@@ -297,7 +313,7 @@ Check Printability runs before export and reports, per board:
 3. **Patterns.** Done: vectorized Perlin noise, virtual log for long faces, stylized semicircles for ends, separate random streams, colour preview in the viewport; 71 pattern tests.
 4. **Carving.** Done: erosion profile with scooped valleys, face selection, two-part fold-safe carving, easing between faces of different depth, auto detail boost, ring anti-aliasing, panel feedback on ring size and cut; 27 carving tests.
 5. **Character.** Done: knots (grain bends around them, hard cores stand proud), checks (straight splits along the fibres on long faces, radial cracks on ends, cutting deeper than the wear), patchy wear, separate end depth (step 4); 25 feature tests.
-6. **Printing.** Printability checks, STL export, FDM and resin defaults; test prints at 1:24, 1:48 and 1:87.
+6. **Printing.** Done: Check Printability (object and settings checks, results in the panel), STL export with one file per board, FDM and resin defaults; 13 printability tests. Still to do by hand: test prints at 1:24, 1:48 and 1:87.
 7. **Presets.** Common looks (barn siding, dock plank, fence board) saved as Blender operator presets.
 
 ### Decisions

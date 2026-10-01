@@ -197,6 +197,9 @@ class WBOARD_Settings(bpy.types.PropertyGroup):
         default=False, update=_show_pattern_update,
     )
     last_error: StringProperty(default="", options={"HIDDEN"})
+    # Result of the last Check Printability: one finding per line,
+    # "LEVEL\ttitle\tdetail". Cleared whenever the board is rebuilt.
+    check_report: StringProperty(default="", options={"HIDDEN"})
 
     def to_params(self) -> BoardParams:
         """Convert to the plain values the core works with."""
@@ -233,7 +236,7 @@ class WBOARD_Settings(bpy.types.PropertyGroup):
         _suspended = True
         try:
             for key in self.__annotations__:
-                if key not in ("show_pattern", "last_error"):
+                if key not in ("show_pattern", "last_error", "check_report"):
                     setattr(self, key, getattr(other, key))
         finally:
             _suspended = False

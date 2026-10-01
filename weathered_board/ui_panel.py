@@ -187,7 +187,29 @@ class WBOARD_PT_printing(bpy.types.Panel):
         col.prop(s, "min_feature")
         col.prop(s, "auto_detail")
         col.prop(s, "detail_boost", text="Detail Boost (min)" if s.auto_detail else "Detail Boost")
-        layout.operator("wboard.export_stl", icon="EXPORT")
+        row = layout.row(align=True)
+        row.operator("wboard.check", icon="CHECKMARK")
+        row.operator("wboard.export_stl", icon="EXPORT")
+        if s.check_report:
+            _draw_report(layout.box(), s.check_report)
+
+
+REPORT_ICONS = {"OK": "CHECKMARK", "INFO": "INFO", "WARNING": "ERROR", "ERROR": "CANCEL"}
+
+
+def _draw_report(layout, report: str) -> None:
+    """The last Check Printability result: one line per finding, its detail
+    underneath in small type."""
+    layout.label(text="Last check")
+    for line in report.splitlines():
+        level, title, detail = (line.split("\t") + ["", "", ""])[:3]
+        col = layout.column(align=True)
+        col.label(text=title, icon=REPORT_ICONS.get(level, "DOT"))
+        # The sidebar is narrow: one sentence per line.
+        for sentence in (p.strip() for p in detail.split(". ") if p.strip()):
+            sub = col.row()
+            sub.scale_y = 0.75
+            sub.label(text=sentence.rstrip("."))
 
 
 def draw_add_menu(self, _context):
