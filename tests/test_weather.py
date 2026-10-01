@@ -20,8 +20,9 @@ L, W, T = 120.0, 50.0, 20.0
 
 
 def params(rounds=0.15, **kw):
+    # Rings only: knots, checks and patchy wear are tested in test_features.py.
     base = dict(length=L, width=W, thickness=T, scale=1.0, resolution=0.4, seed=5, depth=2.0,
-                auto_detail=False)
+                auto_detail=False, knots=(0, 0), checks=0.0, patchiness=0.0)
     base.update(kw)
     p = BoardParams(**base)
     if isinstance(rounds, dict):

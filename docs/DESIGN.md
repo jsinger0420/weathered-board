@@ -48,7 +48,7 @@ Each of the 12 edges is named by the two faces it joins:
 | `end_wobble` | 0–1 | 0.1 | Slight hand-made unevenness in the arcs; 0 = perfect circles |
 | `end_depth` | full-size length or unset | same as `depth` | Separate depth for the end pattern |
 | `knots` | int or range | 0–2 | Number of knots on the long faces |
-| `checks` | 0–1 | 0.3 | Amount of long cracks along the grain and radial cracks on the ends |
+| `checks` | 0–1 | 0.3 | Amount of cracks: straight splits along the fibres on weathered long faces, radial cracks on the ends |
 | `patchiness` | 0–1 | 0.5 | How unevenly the depth varies across a face |
 | `printer` | `FDM` or `resin` | `resin` | Sets `min_feature` and `resolution` defaults |
 | `min_feature` | printed mm | 0.1 (resin), 0.4 (FDM) | Smallest ridge spacing the printer can hold; the add-on warns below it |
@@ -74,7 +74,8 @@ operators.py  Add / Regenerate / New Seed / Check / Export
 |       |                         |                            |
 |  grain.py  long faces      ends.py  end semicircles  <-- rng.py streams + noise.py
 |       |                         |                            |
-|  patterns.py   both fields per vertex + colour preview       |
+|  features.py   knots, checks, patchy wear                    |
+|  patterns.py   all fields per vertex + colour preview        |
 |       |                                                      |
 |  weather.py    carve: erosion, knots, checks; inward only    |
 +--------------------------------------------------------------+
@@ -194,9 +195,17 @@ In weathered wood the soft earlywood wears away and the hard latewood stands up 
 
 ### Extra features
 
-- **Knots:** each knot is a short branch axis leaving the pith line. Near it, R is bent so rings flow around the knot, and the knot core gets low erosion so it stands proud, as knots do on old boards.
-- **Checks:** a few narrow, deep cracks. On long faces they follow a single ring line for a random stretch and taper at both ends. On ends they run straight outward from the semicircle centre, crossing the rings. Amount set by `checks`.
-- **Patchiness:** a low-frequency noise map multiplies the depth, so some areas are deeply worn and others barely touched.
+All three live in `core/features.py`, each with its own random stream.
+
+- **Knots** (`knots`: a min–max count per board). Each knot is a branch leaving the pith line at a random point along the middle 80% of the board. It is aimed through a point inside the board, tilted slightly along it as branches grow, so it always crosses the board and shows as an oval where it meets a face. Its radius is 4–12% of the board width, never under 4 mesh vertices.
+  - The distance from the pith is pushed out near the branch (by up to 1.2 knot radii, fading over 2.5 radii), so the grain flows around the knot.
+  - The knot's core resists wear (85% less erosion) and stands proud of the worn wood around it, as knots do on old boards.
+  - Knots affect the long faces only.
+- **Checks** (`checks`: 0–1). Narrow cracks, a quarter of a ring spacing wide (never under 4 mesh vertices).
+  - **Long faces:** about 6 per metre of board at `checks` = 1, placed only on long faces that are being weathered, more often on wider faces. They split along the fibres, as surface checks do: nearly straight lines along the board with a slight wander (two gentle waves, under 4% of the width), 15–50% of the board long, thinning to both tips. They cut across the curving ridges, which is what makes them read as cracks.
+  - **Ends:** about 4 per end at `checks` = 1. Each runs straight out from the ring centre, starting shallow and opening deepest toward the outside, as end checks do.
+  - Checks cut 1.6 times the face's depth, up to 35% of the thickness (more than the 25% cap on wear). They are narrow, so even checks on opposite faces leave 30% of the wood between them.
+- **Patchy wear** (`patchiness`: 0–1). A smooth noise map, with features about 300 mm along the board and half the width across, scales the depth. Sheltered areas wear as little as 1 − `patchiness` of full depth. It scales the smooth recession as well as the ridges, so it is fold-safe.
 
 ### Combining into a displacement
 
@@ -220,7 +229,7 @@ The carving is then applied in two parts, each of which cannot fold the mesh:
 
 The reported depth is the cut measured straight into the faces (the largest move along any one axis). At an edge the corner also recedes diagonally, as a box shrunk evenly on every face does.
 
-Knots, checks and patchiness (step 5) will multiply into D_f.
+Patchy wear scales both Dn_f and D_f. A knot's core scales down the erosion E on the long faces. A check sets D_f to at least its crack depth, which can be deeper than Dn_f: the "ridge" step then moves those vertices further in along the normal rather than out.
 
 ## Inset, randomization and blending
 
@@ -287,7 +296,7 @@ Check Printability runs before export and reports, per board:
 2. **Blender shell.** Done: manifest, properties, sidebar panel, Add (also in Shift+A), Regenerate, New Seed, edge-group buttons, Export STL, live update, printed size and vertex estimate, error display.
 3. **Patterns.** Done: vectorized Perlin noise, virtual log for long faces, stylized semicircles for ends, separate random streams, colour preview in the viewport; 71 pattern tests.
 4. **Carving.** Done: erosion profile with scooped valleys, face selection, two-part fold-safe carving, easing between faces of different depth, auto detail boost, ring anti-aliasing, panel feedback on ring size and cut; 27 carving tests.
-5. **Character.** Knots, checks, patchiness, separate end depth.
+5. **Character.** Done: knots (grain bends around them, hard cores stand proud), checks (straight splits along the fibres on long faces, radial cracks on ends, cutting deeper than the wear), patchy wear, separate end depth (step 4); 25 feature tests.
 6. **Printing.** Printability checks, STL export, FDM and resin defaults; test prints at 1:24, 1:48 and 1:87.
 7. **Presets.** Common looks (barn siding, dock plank, fence board) saved as Blender operator presets.
 

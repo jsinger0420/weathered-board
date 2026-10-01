@@ -34,6 +34,7 @@ def test_default_board_is_weathered_at_1_48(params):
 
     params.resolution = 0.05  # resin default
     r = build(params)
-    # Auto boost lets the rings carve: deepest cut is the quarter-thickness
-    # cap, printed at 1:48.
-    assert r.depth.max() == pytest.approx(params.thickness / 4 / 48, rel=0.02)
+    # Auto boost lets the rings carve to the quarter-thickness wear cap;
+    # checks (cracks) may cut deeper, up to 35% of the thickness.
+    assert r.depth.max() >= 0.9 * params.thickness / 4 / 48
+    assert r.depth.max() <= 0.35 * params.thickness / 48 + 1e-9

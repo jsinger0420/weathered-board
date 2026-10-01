@@ -105,10 +105,23 @@ class VirtualLog:
         """Number of rings from the pith out to distance r (fractional)."""
         return np.interp(r, self._r_table, self._n_table)
 
-    def phase(self, points: np.ndarray) -> np.ndarray:
-        """Ring phase in [0, 1) for each point: 0 at the start of a year's
-        soft earlywood, rising to 1 at its hard latewood edge."""
+    def pith_at(self, x: float) -> np.ndarray:
+        """Point on the (wobbling) pith line level with board position x."""
+        t = x / self.pith_dir[0]
+        return self.pith_point + t * self.pith_dir + self.pith_offset(np.array([float(x)]))[0]
+
+    def rings(self, points: np.ndarray, bend: np.ndarray | None = None) -> np.ndarray:
+        """Unwrapped ring count at each point (whole rings from the pith plus
+        the fraction into the current one). ``bend`` adds to the distance
+        from the pith, which is how knots push rings aside."""
         points = np.asarray(points, dtype=np.float64)
         r = self.radius(points)
         r = r + self.distort_amp * self.distort_noise.fbm(scaled(points, DISTORTION_SCALE), octaves=DISTORTION_OCTAVES)
-        return np.mod(self.ring_count(np.maximum(r, 0.0)), 1.0)
+        if bend is not None:
+            r = r + bend
+        return self.ring_count(np.maximum(r, 0.0))
+
+    def phase(self, points: np.ndarray, bend: np.ndarray | None = None) -> np.ndarray:
+        """Ring phase in [0, 1) for each point: 0 at the start of a year's
+        soft earlywood, rising to 1 at its hard latewood edge."""
+        return np.mod(self.rings(points, bend), 1.0)

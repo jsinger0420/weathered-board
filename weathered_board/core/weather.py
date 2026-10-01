@@ -27,6 +27,9 @@ SHRINK_MARGIN = 3.0  # carving rays aim at least this many depths inside the boa
 NORMAL_SMOOTHING_STEPS = 12  # passes that ease ridge directions across corner creases
 MAX_REPAIR_PASSES = 40  # halvings of ridge height at turned-over triangles
 FADE_SLOPE = 3.0  # depth changes no faster than 1 mm per FADE_SLOPE mm
+KNOT_HARDNESS = 0.85  # how much less a knot's core wears than the wood around it
+CHECK_DEPTH = 1.6  # checks cut this many times the face's depth (within their cap)
+MAX_CHECK_FRACTION = 0.35  # checks never deeper than this share of the thickness
 
 
 @dataclass
@@ -157,10 +160,23 @@ def face_depths(params: BoardParams, mesh: BoxMesh, patterns: Patterns):
         is_end = face in END_FACES
         erosion = erosion_profile(patterns.phase_for_face(face), params.ridge_sharpness,
                                   end_hw if is_end else long_hw)
+        if not is_end and patterns.knot_core is not None:
+            # A knot's dense core barely wears, so it stands proud.
+            erosion = erosion * (1.0 - KNOT_HARDNESS * patterns.knot_core)
         depth = face_depth[face] * _border_taper(p, half, FACES[face][0], params.edge_margin, face_depth[face])
         depth = _neighbour_fade(p, half, face, depth, face_depth)
+        fade = depth / face_depth[face]  # 1 away from borders, easing to 0 at them
+        if patterns.patch is not None:
+            depth = depth * patterns.patch
         nominal[:, col] = depth
         actual[:, col] = depth * erosion
+        check = patterns.check_for_face(face)
+        if check is not None:
+            # Cracks cut deeper than the wear around them, up to 35% of the
+            # thickness (they are narrow, so even cracks on opposite faces
+            # leave 30% of the wood between them), and fade out at borders.
+            crack_depth = min(CHECK_DEPTH * face_depth[face], MAX_CHECK_FRACTION * params.thickness)
+            actual[:, col] = np.maximum(actual[:, col], crack_depth * fade * check)
     return nominal, actual
 
 
