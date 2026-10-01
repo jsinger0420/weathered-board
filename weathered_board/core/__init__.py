@@ -1,5 +1,12 @@
-"""Pure-numpy board builder. Never imports bpy, so it can be tested with
-plain Python (see tests/)."""
+"""Pure-numpy board builder.
+
+Never imports bpy, so it can be tested with plain Python (see tests/).
+
+``build`` turns a ``BoardParams`` into a finished board in four steps:
+the rounded box (geometry.py), its patterns (patterns.py, which uses
+grain.py, ends.py and features.py), the carving (weather.py) and the
+colour preview. ``check`` runs the printability checks (printcheck.py).
+"""
 
 from __future__ import annotations
 
@@ -15,6 +22,14 @@ from .weather import carve
 
 @dataclass
 class BoardResult:
+    """A built board, ready to load into Blender or check.
+
+    Positions and depths are printed millimetres (full size divided by the
+    scale). ``preview`` holds the per-vertex colours shown by Show Grain
+    Pattern. ``face_depth`` is the deepest cut on each of the six faces,
+    used by the printability checks.
+    """
+
     vertices: np.ndarray  # (N, 3) printed millimetres
     triangles: np.ndarray  # (M, 3) int32
     preview: np.ndarray  # (N, 3) linear RGB colour preview of the ring patterns
@@ -23,8 +38,11 @@ class BoardResult:
 
 
 def build(params: BoardParams) -> BoardResult:
-    """Build a board: rounded box, ring patterns, carving and the colour
-    preview of the patterns."""
+    """Build a finished board from its settings.
+
+    Rounded box, ring patterns, carving and the colour preview of the
+    patterns.
+    """
     params.validate()
     mesh = rounded_box(params)
     patterns = board_patterns(params, mesh)

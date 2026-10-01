@@ -84,4 +84,5 @@ Export STL from the panel's *Printing* section; files are in millimetres. In Fre
 
 - Keep `docs/DESIGN.md` current: change it in the same commit as any code that changes the design.
 - `core/` must never import `bpy`, so its tests run with plain Python.
+- Every module, class and function gets a docstring with a one-line summary (PEP 257); `tests/test_docstrings.py` checks. Operator docstrings double as their buttons' tooltips in Blender, and every setting needs a `description=`, which is its tooltip.
 - Run `python -m pytest` before each commit.

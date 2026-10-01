@@ -10,23 +10,26 @@ from core.printcheck import ERROR, INFO, OK, WARNING, is_watertight
 
 
 def one_by_six(scale, **kw):
-    # 1x6, 4 ft, coarse enough to be quick.
+    """Settings for a 4 ft 1x6 at 1:``scale`` with a light mesh, with overrides."""
     base = dict(length=1219.2, width=139.7, thickness=19.05, scale=scale, resolution=0.1)
     base.update(kw)
     return BoardParams(**base)
 
 
 def by_title(findings):
+    """Findings keyed by their title, for looking one up in a test."""
     return {f.title: f for f in findings}
 
 
 def test_watertight_detects_holes():
+    """A built board is watertight; with one triangle removed it is not."""
     r = build(one_by_six(48))
     assert is_watertight(r.triangles)
     assert not is_watertight(r.triangles[1:])  # one triangle removed
 
 
 def test_default_board_at_1_48_passes():
+    """A default 1x6 at 1:48 passes with no errors or warnings."""
     findings = check(one_by_six(48))
     assert not [f for f in findings if f.level in (ERROR, WARNING)], findings
     titles = by_title(findings)
@@ -34,6 +37,10 @@ def test_default_board_at_1_48_passes():
 
 
 def test_face_depths_are_reported():
+    """The build reports the deepest cut on each of the six faces.
+
+    The top has a real cut; the unweathered bottom has essentially none.
+    """
     r = build(one_by_six(48))
     assert set(r.face_depth) == set(FACES)
     # Not weathered by default; only the edge it shares with weathered
@@ -43,6 +50,10 @@ def test_face_depths_are_reported():
 
 
 def test_rings_too_fine_without_auto_boost_suggests_a_boost():
+    """Rings too fine to carve are an error that suggests the boost to fix it.
+
+    This only arises with Auto Detail Boost off.
+    """
     p = one_by_six(48, auto_detail=False)
     f = by_title(check(p))["Rings too fine for the mesh"]
     assert f.level == ERROR
@@ -50,22 +61,25 @@ def test_rings_too_fine_without_auto_boost_suggests_a_boost():
 
 
 def test_thin_board_at_small_scale_fails_wall_check():
-    # A 3/4 in board at 1:87 is only 0.22 mm thick.
+    """A 3/4 in board at 1:87 (0.22 mm thick) fails the wall check once carved."""
     f = by_title(check(one_by_six(87)))
     assert f["Wall too thin"].level == ERROR
 
 
 def test_weathered_bottom_needs_supports():
+    """Weathering the bottom is noted, since it then needs supports to print."""
     p = one_by_six(48, faces={f: True for f in FACES})
     assert by_title(check(p))["Bottom is weathered"].level == INFO
 
 
 def test_heavy_mesh_warning(monkeypatch):
+    """A mesh over the triangle limit gets a warning (limit lowered for the test)."""
     monkeypatch.setattr(printcheck, "MAX_TRIANGLES", 1000)
     assert by_title(check(one_by_six(48)))["Heavy mesh"].level == WARNING
 
 
 def test_shallow_carving_warning():
+    """A very shallow depth gets a warning that the carving may not show."""
     p = one_by_six(48, depth=0.05, auto_detail=True)
     f = by_title(check(p))
     assert "Carving very shallow" in f

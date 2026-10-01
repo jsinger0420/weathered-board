@@ -26,13 +26,33 @@ RANDOM_EDGE_WEIGHTS = (0.4, 0.4, 0.1, 0.1)
 
 @dataclass
 class EndCentre:
+    """Where one end's semicircular rings are centred.
+
+    ``edge`` is the edge of the end face the centre sits on (TOP, BOTTOM,
+    FRONT or BACK); ``y`` and ``z`` are its position in full-size mm.
+    """
+
     edge: str  # TOP, BOTTOM, FRONT or BACK
     y: float
     z: float
 
 
 class EndRings:
+    """The semicircular ring pattern on both ends of a board.
+
+    Each end gets its own centre on one of its edges, so the two ends of a
+    board differ. ``phase`` gives the ring phase at any point; ``distance``
+    is the plain distance from the ring centre, used for the radial cracks.
+    """
+
     def __init__(self, params: BoardParams, rng: np.random.Generator):
+        """Pick each end's ring centre and set up the spacing and wobble.
+
+        The ring spacing is ``end_spacing`` times the detail boost. With
+        ``end_center`` RANDOM, each end draws its own edge (usually top or
+        bottom); either way the centre falls somewhere in the middle half of
+        that edge. ``rng`` is the board's "ends" random stream.
+        """
         half = 0.5 * np.array(params.size, dtype=float)
         hy, hz = half[1], half[2]
         self.spacing = params.end_spacing * params.boost()
@@ -54,8 +74,10 @@ class EndRings:
         self.noise = Noise(rng)
 
     def distance(self, points: np.ndarray) -> np.ndarray:
-        """Distance from each point to its end's ring centre, within the
-        end's plane. Points with x < 0 use end A's centre, others end B's."""
+        """Distance from each point to its end's ring centre, within the end's plane.
+
+        Points with x < 0 use end A's centre, others end B's.
+        """
         a, b = self.centres["end_a"], self.centres["end_b"]
         use_b = points[:, 0] >= 0
         cy = np.where(use_b, b.y, a.y)

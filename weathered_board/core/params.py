@@ -2,7 +2,7 @@
 
 Everything here is in full-size millimetres unless a name says otherwise.
 The Blender layer converts its properties into a ``BoardParams`` and hands
-it to ``core.build_board``.
+it to ``core.build``.
 """
 
 from __future__ import annotations
@@ -62,7 +62,15 @@ class ParamError(ValueError):
 
 @dataclass
 class BoardParams:
+    """Every setting for one board, as plain values.
+
+    Lengths are full-size millimetres, except ``resolution`` and
+    ``min_feature``, which are printed millimetres. ``scale`` is N in 1:N.
+    ``faces`` and ``edge_round`` are keyed by the names in FACES and EDGES.
+    Call ``validate`` before building.
+    """
     # Full-size dimensions in millimetres.
+
     length: float
     width: float
     thickness: float
@@ -100,8 +108,11 @@ class BoardParams:
     # ---- derived values -------------------------------------------------
 
     def needed_boost(self) -> float:
-        """Smallest boost that lets the finest rings print: each ring at
-        least MIN_RING_VERTICES vertices and 2 smallest-features wide."""
+        """Smallest boost that lets the finest rings carve and print.
+
+        Each ring needs at least MIN_RING_VERTICES vertices and must be 2
+        smallest-features wide.
+        """
         finest = min(self.ring_spacing[0], self.end_spacing)
         printed_needed = max(MIN_RING_VERTICES * self.resolution, 2.0 * self.min_feature)
         return max(1.0, printed_needed * self.scale / finest)
@@ -113,18 +124,24 @@ class BoardParams:
         return self.detail_boost
 
     def carve_depth(self, end: bool = False) -> float:
-        """Full-size carving depth after the boost, never past a quarter of
-        the thickness (so opposite faces can't meet)."""
+        """Full-size carving depth after the boost, capped at a quarter of the thickness.
+
+        The cap keeps opposite faces from meeting. ``end`` gives the depth
+        for the end faces.
+        """
         base = self.end_depth if (end and self.end_depth is not None) else self.depth
         return min(base * self.boost(), MAX_DEPTH_FRACTION * self.thickness)
 
     @property
     def size(self) -> tuple[float, float, float]:
+        """(length, width, thickness) in full-size mm, matching axes X, Y and Z."""
         return (self.length, self.width, self.thickness)
 
     def max_radius(self, edge: str) -> float:
-        """Largest radius an edge can take: half the smaller of the two
-        dimensions across its cross-section."""
+        """Largest radius an edge can take.
+
+        Half the smaller of the two dimensions across its cross-section.
+        """
         f1, f2 = EDGES[edge]
         a1, a2 = FACES[f1][0], FACES[f2][0]
         return 0.5 * min(self.size[a1], self.size[a2])
@@ -136,6 +153,14 @@ class BoardParams:
     # ---- validation -----------------------------------------------------
 
     def validate(self) -> None:
+        """Raise ParamError if the settings can't make a board.
+
+        Its message is shown in the panel.
+
+        For example: a size that isn't positive, rounding outside 0-1, a depth
+        over a quarter of the thickness (opposite faces could meet), or an edge
+        margin wider than half a face.
+        """
         if min(self.size) <= 0:
             raise ParamError("Length, width and thickness must be positive.")
         if self.scale < 1:

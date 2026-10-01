@@ -1,6 +1,9 @@
-"""Registers the add-on and adds a board. Runs only where bpy is importable:
-inside Blender (blender --background --python-expr ...) or with the
-``bpy`` module from PyPI installed."""
+"""The add-on inside Blender: adding, rebuilding, the panel, checks, export, tooltips.
+
+Covers live update, Check Printability and STL export too. Runs only where
+bpy is importable: inside Blender (blender --background --python-expr ...)
+or with the ``bpy`` module from PyPI installed.
+"""
 
 import sys
 from pathlib import Path
@@ -14,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 @pytest.fixture
 def addon():
+    """Register the add-on for one test and unregister it afterwards."""
     import weathered_board
 
     weathered_board.register()
@@ -22,6 +26,7 @@ def addon():
 
 
 def test_add_board(addon):
+    """Add Weathered Board creates one board object with a seed and a real mesh."""
     bpy.ops.wm.read_factory_settings(use_empty=True)
     before = len(bpy.data.objects)
     assert bpy.ops.wboard.add() == {"FINISHED"}
@@ -33,6 +38,7 @@ def test_add_board(addon):
 
 
 def test_regenerate_and_new_seed(addon):
+    """Regenerate keeps the board's seed; New Seed replaces it."""
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.wboard.add()
     obj = bpy.context.active_object
@@ -44,6 +50,7 @@ def test_regenerate_and_new_seed(addon):
 
 
 def test_export_stl_in_mm(addon, tmp_path):
+    """Export STL writes a non-empty file (larger than the 84-byte STL header)."""
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.wboard.add()
     path = tmp_path / "board.stl"
@@ -52,6 +59,7 @@ def test_export_stl_in_mm(addon, tmp_path):
 
 
 def test_board_has_pattern_colours(addon):
+    """New boards carry the pattern preview as their active colour attribute."""
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.wboard.add()
     mesh = bpy.context.active_object.data
@@ -61,6 +69,11 @@ def test_board_has_pattern_colours(addon):
 
 
 def test_live_update_rebuilds_a_changed_board(addon):
+    """Changing a board's setting queues a rebuild that applies the change.
+
+    Halving the length must halve the board's size once the queue is
+    flushed.
+    """
     from weathered_board import properties
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -76,6 +89,7 @@ def test_live_update_rebuilds_a_changed_board(addon):
 
 
 def test_live_update_off_leaves_the_board_alone(addon):
+    """With live update off, changing a setting queues nothing."""
     from weathered_board import properties
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -87,6 +101,11 @@ def test_live_update_off_leaves_the_board_alone(addon):
 
 
 def test_errors_are_kept_on_the_board(addon):
+    """A failed rebuild keeps its error message on the board.
+
+    The panel shows it there; live updates have no other way to report
+    errors.
+    """
     from weathered_board import operators
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -99,12 +118,14 @@ def test_errors_are_kept_on_the_board(addon):
 
 
 def test_add_menu_entry(addon):
+    """Weathered Board appears in the 3D Viewport's Add > Mesh menu."""
     from weathered_board import ui_panel
 
     assert ui_panel.draw_add_menu in bpy.types.VIEW3D_MT_mesh_add._dyn_ui_initialize()
 
 
 def test_panel_print_info_draws(addon):
+    """The panel's size readout gives the printed size for the default 1x6 at 1:48."""
     from unittest import mock
 
     from weathered_board import ui_panel
@@ -126,6 +147,11 @@ def _small_board():
 
 
 def test_check_printability_stores_a_report(addon):
+    """A fresh board passes Check Printability with a full report.
+
+    The report must cover the object checks: watertight, self-intersections
+    and printed size.
+    """
     obj = _small_board()
     assert bpy.ops.wboard.check() == {"FINISHED"}
     report = obj.weathered_board.check_report
@@ -135,6 +161,7 @@ def test_check_printability_stores_a_report(addon):
 
 
 def test_check_notices_a_scaled_board(addon):
+    """Scaling a board after building it is caught by the printed-size check."""
     obj = _small_board()
     obj.scale = (1.1, 1.0, 1.0)
     bpy.context.view_layer.update()
@@ -143,6 +170,7 @@ def test_check_notices_a_scaled_board(addon):
 
 
 def test_check_notices_a_hole(addon):
+    """Deleting a face leaves open edges, which the check reports as an error."""
     import bmesh as bm_mod
 
     obj = _small_board()
@@ -160,6 +188,7 @@ def test_check_notices_a_hole(addon):
 
 
 def test_rebuilding_clears_the_report(addon):
+    """A rebuild clears the last check's results, since they no longer apply."""
     from weathered_board import operators
 
     obj = _small_board()
@@ -170,6 +199,10 @@ def test_rebuilding_clears_the_report(addon):
 
 
 def test_export_one_file_per_board(addon, tmp_path):
+    """One File per Board writes a separately named file for each board.
+
+    The selection is put back as it was afterwards.
+    """
     _small_board()
     first = bpy.context.active_object
     bpy.ops.wboard.add()
@@ -185,10 +218,15 @@ def test_export_one_file_per_board(addon, tmp_path):
 
 
 def _visible_props(rna):
+    """Settings of a Blender type that show in the UI (not hidden, not ``rna_type``)."""
     return [p for p in rna.properties if p.identifier != "rna_type" and not p.is_hidden]
 
 
 def test_every_setting_has_a_tooltip(addon):
+    """Every visible setting, and every drop-down option, has a helpful tooltip.
+
+    Setting tooltips must be at least 20 characters long.
+    """
     from weathered_board.properties import WBOARD_Settings
 
     missing = []
@@ -201,6 +239,10 @@ def test_every_setting_has_a_tooltip(addon):
 
 
 def test_every_button_has_a_tooltip(addon):
+    """Every operator has a real tooltip (its docstring) and every setting it shows has one too.
+
+    Settings from Blender's file browser are skipped.
+    """
     from weathered_board import operators
 
     missing = []
@@ -220,8 +262,14 @@ def test_every_button_has_a_tooltip(addon):
 
 
 def test_edge_group_buttons_have_their_own_tooltips(addon):
+    """Each edge-group button has its own tooltip naming its edges.
+
+    All / Long / End A / End B are one operator with a different group set.
+    """
     from weathered_board.operators import WBOARD_OT_set_edges
 
     class Props:
+        """Stands in for the button's operator properties, set to the Long group."""
+
         group = "LONG"
     assert "length of the board" in WBOARD_OT_set_edges.description(bpy.context, Props)

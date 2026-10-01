@@ -42,6 +42,14 @@ _EDGE_BY_FACES = {frozenset(pair): name for name, pair in EDGES.items()}
 
 @dataclass
 class BoxMesh:
+    """The rounded board before weathering, in full-size millimetres.
+
+    ``face_weights`` says how much each vertex belongs to each face (columns
+    in FACE_NAMES order): 1 on a flat face, sliding between two faces across a
+    rounded edge. ``rounded`` marks vertices the mesher moved onto a rounded
+    edge or corner.
+    """
+
     vertices: np.ndarray  # (N, 3) float64, full-size mm
     triangles: np.ndarray  # (M, 3) int32, wound outward
     normals: np.ndarray  # (N, 3) float64, unit
@@ -54,6 +62,11 @@ class BoxMesh:
 # --------------------------------------------------------------------------
 
 def _edge_name(axis_a: int, sign_a: int, axis_b: int, sign_b: int) -> str:
+    """The name of the edge between two faces, each given as (axis, sign).
+
+    For example (2, +1) and (1, -1) are the top and the front, so the edge is
+    ``"top_front"``.
+    """
     fa = _FACE_BY_AXIS_SIDE[(axis_a, sign_a)]
     fb = _FACE_BY_AXIS_SIDE[(axis_b, sign_b)]
     return _EDGE_BY_FACES[frozenset((fa, fb))]
@@ -67,6 +80,12 @@ class RoundedBoard:
     PLANES = ((1, 2), (0, 2), (0, 1))
 
     def __init__(self, params: BoardParams):
+        """Look up each edge's radius and file it by cross-section and corner.
+
+        ``radius[n, iu, iv]`` is the radius in cross-section ``n`` (see PLANES)
+        at the corner on the negative (0) or positive (1) side of each of its two
+        axes.
+        """
         self.half = 0.5 * np.array(params.size, dtype=float)
         # radius[plane][su][sv], su/sv: 0 = negative side, 1 = positive side
         self.radius = np.zeros((3, 2, 2))
@@ -85,11 +104,18 @@ class RoundedBoard:
         return outside + np.minimum(np.maximum(qu, qv), 0.0) - r
 
     def sdf(self, p: np.ndarray) -> np.ndarray:
+        """Signed distance to the board's surface: negative inside, positive outside.
+
+        The board is the intersection of the three extruded cross-sections, so
+        its distance is the largest of their three distances.
+        """
         return np.maximum(np.maximum(self.plane_sdf(p, 0), self.plane_sdf(p, 1)), self.plane_sdf(p, 2))
 
     def bands(self) -> np.ndarray:
-        """(3, 2): for each axis and side, the widest radius on any edge of
-        that face. Rounding only happens within this distance of the face."""
+        """(3, 2): for each axis and side, the widest radius on any edge of that face.
+
+        Rounding only happens within this distance of the face.
+        """
         band = np.zeros((3, 2))
         for n, (u, v) in enumerate(self.PLANES):
             band[u, 0] = max(band[u, 0], self.radius[n, 0, :].max())
@@ -108,6 +134,10 @@ def _axis_coords(h: float, band_lo: float, band_hi: float, spacing: float) -> np
     pieces = []
 
     def run(a: float, b: float, step: float) -> None:
+        """Add evenly spaced coordinates from ``a`` to ``b``, at most ``step`` apart.
+
+        Both ends are included.
+        """
         if b - a <= 1e-12:
             return
         n = max(1, int(np.ceil((b - a) / step - 1e-9)))
@@ -147,6 +177,12 @@ def _face_grid(axis: int, sign: int, half: np.ndarray, coords: list[np.ndarray])
 
 
 def grid_coords(params: BoardParams) -> list[np.ndarray]:
+    """The grid coordinates along each axis for this board's mesh.
+
+    Spaced ``resolution`` apart (in printed mm, so scaled up to full size),
+    and finer inside each edge's rounding band. Every face grid is built from
+    these three lists, which is what makes the seams line up.
+    """
     board = RoundedBoard(params)
     band = board.bands()
     spacing = params.resolution * params.scale
@@ -154,6 +190,11 @@ def grid_coords(params: BoardParams) -> list[np.ndarray]:
 
 
 def estimate_vertices(params: BoardParams) -> int:
+    """How many vertices the mesh will have, without building it.
+
+    Used by the panel to show the mesh size, and by the builder to refuse
+    meshes over MAX_VERTICES before spending time on them.
+    """
     nx, ny, nz = (len(c) for c in grid_coords(params))
     return 2 * (nx * ny + ny * nz + nz * nx)
 

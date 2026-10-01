@@ -1,47 +1,61 @@
+"""Board settings: edges, defaults, validation and the detail boost.
+
+These check the plain settings object before any mesh is built: that
+impossible settings are refused, and that the derived values (edge radii,
+auto detail boost, capped depth) come out as the design says.
+"""
+
 import pytest
 
 from core.params import EDGES, BoardParams, ParamError, to_mm
 
 
 def board(**kw):
-    # A nominal 1x6 board: 0.75 x 5.5 x 96 in, in mm.
+    """Settings for a nominal 1x6 (0.75 x 5.5 x 96 in) in mm, with overrides."""
     base = dict(length=to_mm(96, "IN"), width=to_mm(5.5, "IN"), thickness=to_mm(0.75, "IN"))
     base.update(kw)
     return BoardParams(**base)
 
 
 def test_defaults_are_valid():
+    """The default settings pass validation."""
     board().validate()
 
 
 def test_twelve_edges():
+    """A board has exactly 12 named edges."""
     assert len(EDGES) == 12
 
 
 def test_long_edge_max_radius_is_half_thickness():
+    """A long edge can be rounded up to half the thickness, its thinner side."""
     p = board()
     assert p.max_radius("top_front") == pytest.approx(p.thickness / 2)
 
 
 def test_end_edge_across_width_limited_by_thickness():
+    """An end edge running across the width is also limited by half the thickness."""
     p = board()
     # a_top joins end_a (X) and top (Z): cross-section is X by Z.
     assert p.max_radius("a_top") == pytest.approx(p.thickness / 2)
 
 
 def test_edge_radius_scales_with_slider():
+    """A rounding of 1 gives the largest radius the edge can take."""
     p = board()
     p.edge_round["top_front"] = 1.0
     assert p.edge_radius("top_front") == pytest.approx(p.max_radius("top_front"))
 
 
 def test_depth_limit():
+    """A depth over a quarter of the thickness is refused."""
     p = board(depth=10.0)  # thickness is 19.05 mm, limit is ~4.76 mm
     with pytest.raises(ParamError):
         p.validate()
 
 
 def test_rounding_out_of_range():
+    """A rounding outside 0-1 is refused."""
     p = board()
     p.edge_round["b_back"] = 1.5
     with pytest.raises(ParamError):
@@ -49,6 +63,7 @@ def test_rounding_out_of_range():
 
 
 def test_bottom_not_weathered_by_default():
+    """The bottom starts unweathered, so boards print flat on the bed."""
     assert board().faces["bottom"] is False
 
 
@@ -57,6 +72,10 @@ def test_bottom_not_weathered_by_default():
 # --------------------------------------------------------------------------
 
 def test_auto_boost_makes_rings_printable_at_small_scales():
+    """At 1:48 on a resin printer the auto boost is 3.2.
+
+    That is the smallest boost that gives each 3 mm ring 4 mesh vertices.
+    """
     # 1x6 at 1:48 on a resin printer: true 3 mm rings would print at
     # 0.06 mm, finer than 4 mesh vertices (0.2 mm) can carve.
     p = board(scale=48.0)
@@ -65,19 +84,26 @@ def test_auto_boost_makes_rings_printable_at_small_scales():
 
 
 def test_auto_boost_is_not_needed_at_large_scales():
+    """At full size the rings print as they are, with no boost."""
     assert board(scale=1.0).boost() == 1.0
 
 
 def test_manual_boost_when_auto_is_off():
+    """With Auto Detail Boost off, Detail Boost is used exactly."""
     p = board(scale=48.0, auto_detail=False, detail_boost=1.5)
     assert p.boost() == 1.5
 
 
 def test_manual_boost_above_auto_wins():
+    """With Auto Detail Boost on, a larger manual boost still wins (it is a minimum)."""
     assert board(scale=48.0, detail_boost=5.0).boost() == 5.0
 
 
 def test_boosted_depth_never_passes_a_quarter_of_the_thickness():
+    """The boosted depth is capped at a quarter of the thickness.
+
+    A separate end depth is used on the ends.
+    """
     p = board(scale=48.0, depth=3.0)  # 3 mm x 3.2 = 9.6 mm, more than 19.05 / 4
     assert p.carve_depth() == pytest.approx(p.thickness / 4)
     q = board(scale=1.0, depth=3.0, end_depth=1.0)

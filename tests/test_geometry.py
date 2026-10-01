@@ -21,6 +21,10 @@ RES = 0.5  # with scale 1 this is the full-size grid spacing in mm
 
 
 def make(rounds=None, length=L, width=W, thickness=T, res=RES):
+    """Settings for a 120 x 50 x 20 mm test board at full scale.
+
+    ``rounds`` is one rounding for every edge, or a dict of edge roundings.
+    """
     p = BoardParams(length=length, width=width, thickness=thickness, scale=1.0, resolution=res)
     if rounds is not None:
         if isinstance(rounds, (int, float)):
@@ -30,6 +34,12 @@ def make(rounds=None, length=L, width=W, thickness=T, res=RES):
 
 
 def assert_valid(mesh, p):
+    """Assert ``mesh`` is a sound rounded board for ``p``.
+
+    Closed with consistent winding, a single surface, facing outward, inside
+    the original box, with no degenerate or folded triangles, unit normals,
+    and every vertex on the surface.
+    """
     v, t = mesh.vertices, mesh.triangles
     assert is_closed_and_consistent(t), "mesh is not closed or has flipped winding"
     assert euler_ok(v, t), "mesh is not a single closed surface"
@@ -43,10 +53,13 @@ def assert_valid(mesh, p):
 
 
 def assert_faces_outward(mesh, p):
-    """No folded triangles: every triangle faces away from the interior
-    point its vertices were projected from (the inner box shrunk by the
-    rounding bands). The rounded parts are a projection out from those
-    points, so a triangle facing back toward them would be a fold."""
+    """Assert no triangle is folded over.
+
+    Every triangle must face away from the interior point its vertices were
+    projected from (the inner box shrunk by the rounding bands). The rounded
+    parts are a projection out from those points, so a triangle facing back
+    toward them would be a fold.
+    """
     board = RoundedBoard(p)
     half = board.half
     band = np.maximum(board.bands(), 1e-6 * half[:, None])
@@ -65,12 +78,14 @@ def assert_faces_outward(mesh, p):
 
 @pytest.mark.parametrize("value", [0.0, 0.15, 0.5, 1.0])
 def test_uniform_rounding_is_valid(value):
+    """Every edge at the same rounding, from sharp to fully round, gives a sound mesh."""
     p = make(value)
     assert_valid(rounded_box(p), p)
 
 
 @pytest.mark.parametrize("seed", range(12))
 def test_random_mixed_rounding_is_valid(seed):
+    """Random mixes of sharp, light and heavy rounding give a sound mesh."""
     rng = np.random.default_rng(seed)
     # Mix of sharp, light and heavy rounding, edge by edge.
     choices = np.array([0.0, 0.05, 0.15, 0.4, 0.75, 1.0])
@@ -81,6 +96,7 @@ def test_random_mixed_rounding_is_valid(seed):
 
 @pytest.mark.parametrize("size", [(120, 50, 20), (120, 20, 50), (40, 40, 40), (300, 140, 19)])
 def test_other_proportions_are_valid(size):
+    """Random rounding on long, tall, cube-shaped and wide boards gives a sound mesh."""
     rng = np.random.default_rng(7)
     rounds = {e: float(rng.uniform(0, 1)) for e in EDGES}
     p = make(rounds, *size)
@@ -100,8 +116,11 @@ def edge_geometry(edge, half):
 
 
 def arc_radii(mesh, p, edge):
-    """Distances from the edge's arc centre for vertices on its rounded part,
-    away from the corners. Returns (distances, expected radius)."""
+    """Distances from an edge's arc centre to the vertices on its rounded part.
+
+    Only vertices away from the corners are used. Returns (distances,
+    expected radius).
+    """
     half = 0.5 * np.array(p.size)
     r = p.edge_radius(edge)
     along, (ka, sa), (kb, sb) = edge_geometry(edge, half)
@@ -118,7 +137,10 @@ def arc_radii(mesh, p, edge):
 
 @pytest.mark.parametrize("edge", list(EDGES))
 def test_each_edge_has_its_own_radius(edge):
-    # Long board so every edge has a clear middle stretch.
+    """Raising one edge's rounding changes only that edge.
+
+    Every edge's arc must be an exact circle of its own radius.
+    """
     # Big cube so every edge, including the short end edges, has a middle
     # stretch clear of the corner blending.
     rounds = {e: 0.1 for e in EDGES}
@@ -133,6 +155,7 @@ def test_each_edge_has_its_own_radius(edge):
 
 
 def test_sharp_edges_stay_sharp():
+    """All edges at 0 give an exact box: sharp corners and full volume."""
     p = make(0.0)
     v = rounded_box(p).vertices
     half = 0.5 * np.array(p.size)
@@ -143,7 +166,7 @@ def test_sharp_edges_stay_sharp():
 
 
 def test_fully_rounded_long_edges_make_a_cylinder():
-    # Square section, long edges fully rounded: the middle is a round dowel.
+    """A square board with its long edges fully rounded is a round dowel along its middle."""
     rounds = {e: 0.0 for e in EDGES}
     for e in ("top_front", "top_back", "bottom_front", "bottom_back"):
         rounds[e] = 1.0
@@ -154,6 +177,10 @@ def test_fully_rounded_long_edges_make_a_cylinder():
 
 
 def test_uniform_radius_volume_matches_formula():
+    """With one radius on every edge, the volume matches the exact formula.
+
+    The formula is for a router-shaped box; the mesh must agree within 0.2%.
+    """
     # Router-style corners: three equal quarter-cylinders intersect, so each
     # corner keeps (2 - sqrt 2) r^3 of its r^3 cube (one eighth of a
     # Steinmetz tricylinder), and each edge keeps a quarter disc per length.
@@ -174,6 +201,10 @@ def test_uniform_radius_volume_matches_formula():
 # --------------------------------------------------------------------------
 
 def test_normals_point_outward_and_flat_faces_are_exact():
+    """Normals point outward everywhere and are exact on flat faces.
+
+    On a flat face a vertex's normal must be exactly that face's axis.
+    """
     rng = np.random.default_rng(3)
     p = make({e: float(rng.uniform(0.1, 1)) for e in EDGES})
     mesh = rounded_box(p)
@@ -189,6 +220,7 @@ def test_normals_point_outward_and_flat_faces_are_exact():
 
 
 def test_face_weights_on_flat_faces():
+    """A vertex in the middle of the top belongs to the top alone."""
     p = make(0.3)
     mesh = rounded_box(p)
     centre_top = np.argmin(np.linalg.norm(mesh.vertices - [0, 0, T / 2], axis=1))
@@ -198,6 +230,7 @@ def test_face_weights_on_flat_faces():
 
 
 def test_face_weights_blend_across_a_rounded_edge():
+    """Across a rounded edge, a vertex's weights for its two faces add up to 1."""
     p = make(0.5)
     mesh = rounded_box(p)
     w = mesh.face_weights
@@ -209,6 +242,7 @@ def test_face_weights_blend_across_a_rounded_edge():
 
 
 def test_sharp_seam_belongs_to_both_faces():
+    """On a sharp edge, seam vertices belong fully to both faces."""
     p = make(0.0)
     mesh = rounded_box(p)
     v, w = mesh.vertices, mesh.face_weights
@@ -223,6 +257,7 @@ def test_sharp_seam_belongs_to_both_faces():
 # --------------------------------------------------------------------------
 
 def test_every_rounded_band_gets_at_least_eight_segments():
+    """Each rounded edge gets enough vertices to look round, even on a coarse mesh."""
     p = make({e: 0.05 for e in EDGES}, res=5.0)  # coarse grid, thin bands
     v = rounded_box(p).vertices
     r = p.edge_radius("top_front")
@@ -232,6 +267,7 @@ def test_every_rounded_band_gets_at_least_eight_segments():
 
 
 def test_too_many_vertices_is_refused():
+    """A mesh over the vertex limit is refused with a message, before building it."""
     p = make(0.2, length=3000, width=300, thickness=50, res=0.05)
     with pytest.raises(ParamError, match="vertices"):
         rounded_box(p)
@@ -239,6 +275,7 @@ def test_too_many_vertices_is_refused():
 
 
 def test_build_is_deterministic():
+    """Building twice with the same settings gives identical meshes."""
     p = make(0.37)
     a, b = rounded_box(p), rounded_box(p)
     assert np.array_equal(a.vertices, b.vertices)

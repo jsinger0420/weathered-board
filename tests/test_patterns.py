@@ -1,5 +1,7 @@
-"""Ring patterns: noise, the virtual log, end semicircles and the preview
-(build plan step 3)."""
+"""Ring patterns: noise, the virtual log, end semicircles and the preview.
+
+Build plan step 3.
+"""
 
 import math
 
@@ -17,6 +19,10 @@ from core.rng import streams
 
 
 def params(**kw):
+    """Settings for a 600 mm 1x6 at full scale with a coarse mesh.
+
+    Auto Detail Boost is off so ring spacings are exactly as set.
+    """
     base = dict(length=600.0, width=139.7, thickness=19.05, scale=1.0, resolution=2.0, seed=11,
                 auto_detail=False)
     base.update(kw)
@@ -28,6 +34,7 @@ def params(**kw):
 # --------------------------------------------------------------------------
 
 def test_noise_is_repeatable_and_seeded():
+    """The same generator gives the same noise; a different one gives different noise."""
     pts = np.random.default_rng(0).uniform(-50, 50, size=(1000, 3))
     a = Noise(np.random.default_rng(5))(pts)
     b = Noise(np.random.default_rng(5))(pts)
@@ -37,6 +44,10 @@ def test_noise_is_repeatable_and_seeded():
 
 
 def test_noise_is_smooth_and_bounded():
+    """Noise is bounded and smooth, and its fractal sum really varies.
+
+    It stays within about [-1, 1] with no jumps along any axis.
+    """
     n = Noise(np.random.default_rng(1))
     for axis in range(3):
         p = np.tile([0.37, 0.52, 0.81], (4001, 1))
@@ -49,6 +60,7 @@ def test_noise_is_smooth_and_bounded():
 
 
 def test_random_streams_are_independent_and_repeatable():
+    """Random streams repeat for a seed, and drawing from one never shifts another."""
     a, b = streams(123), streams(123)
     assert a["grain"].random() == b["grain"].random()
     # Drawing more from one stream never shifts another.
@@ -62,11 +74,13 @@ def test_random_streams_are_independent_and_repeatable():
 # --------------------------------------------------------------------------
 
 def make_log(p):
+    """The virtual log for ``p``, from its "grain" random stream."""
     return VirtualLog(p, streams(p.seed)["grain"])
 
 
 @pytest.mark.parametrize("seed", range(30))
 def test_pith_is_outside_the_board_and_barely_tilted(seed):
+    """The pith is always outside the board and tilted at most about 2 degrees."""
     p = params(seed=seed)
     log = make_log(p)
     hy, hz = 0.5 * p.width, 0.5 * p.thickness
@@ -77,7 +91,7 @@ def test_pith_is_outside_the_board_and_barely_tilted(seed):
 
 
 def test_most_boards_are_flat_sawn():
-    # Pith behind the top or bottom face, giving arches on the wide face.
+    """Over 60% of boards have the pith behind a wide face (cathedral grain)."""
     behind_wide_face = 0
     for seed in range(300):
         log = make_log(params(seed=seed))
@@ -86,6 +100,7 @@ def test_most_boards_are_flat_sawn():
 
 
 def test_even_rings_when_spacing_is_fixed():
+    """With Min = Max ring spacing and no waviness, rings are exactly evenly spaced."""
     p = params(ring_spacing=(4.0, 4.0), grain_waviness=0.0)
     log = make_log(p)
     r = np.linspace(50, 400, 200)
@@ -93,6 +108,7 @@ def test_even_rings_when_spacing_is_fixed():
 
 
 def test_ring_widths_stay_within_the_range():
+    """Every ring is between Ring Spacing Min and Max wide."""
     p = params(ring_spacing=(3.0, 6.0))
     log = make_log(p)
     r = np.linspace(10, 500, 2000)
@@ -102,6 +118,7 @@ def test_ring_widths_stay_within_the_range():
 
 
 def test_detail_boost_widens_the_rings():
+    """A detail boost of 2 makes every ring twice as wide."""
     plain = make_log(params(ring_spacing=(4.0, 4.0), grain_waviness=0.0))
     boosted = make_log(params(ring_spacing=(4.0, 4.0), grain_waviness=0.0, detail_boost=2.0))
     r = np.linspace(50, 300, 50)
@@ -110,6 +127,10 @@ def test_detail_boost_widens_the_rings():
 
 
 def test_grain_phase_is_repeatable_and_varies_by_seed():
+    """The grain repeats for a seed and differs for another.
+
+    Phases must also stay in [0, 1).
+    """
     p = params()
     mesh = rounded_box(p)
     a = make_log(p).phase(mesh.vertices)
@@ -121,7 +142,11 @@ def test_grain_phase_is_repeatable_and_varies_by_seed():
 
 
 def test_grain_runs_along_the_board():
-    # Phase changes far more slowly along the length than across it.
+    """The grain runs lengthwise.
+
+    Rings must change over three times faster across the board than along
+    it.
+    """
     p = params(seed=3)
     log = make_log(p)
     x = np.linspace(-200, 200, 401)
@@ -138,11 +163,13 @@ def test_grain_runs_along_the_board():
 # --------------------------------------------------------------------------
 
 def make_ends(p):
+    """The end-ring pattern for ``p``, from its "ends" random stream."""
     return EndRings(p, streams(p.seed)["ends"])
 
 
 @pytest.mark.parametrize("seed", range(20))
 def test_end_centres_sit_on_an_edge_in_its_middle_half(seed):
+    """Each end's ring centre sits on one of its edges, within the middle half of it."""
     p = params(seed=seed)
     hy, hz = 0.5 * p.width, 0.5 * p.thickness
     for c in make_ends(p).centres.values():
@@ -157,11 +184,13 @@ def test_end_centres_sit_on_an_edge_in_its_middle_half(seed):
 
 @pytest.mark.parametrize("edge", END_EDGES)
 def test_fixed_end_centre_edge(edge):
+    """Choosing an End Centre edge puts both ends' rings on that edge."""
     p = params(end_center=edge)
     assert all(c.edge == edge for c in make_ends(p).centres.values())
 
 
 def test_rings_are_evenly_spaced_without_wobble():
+    """With no wobble, end rings are perfect circles exactly End Ring Spacing apart."""
     p = params(end_spacing=4.0, end_wobble=0.0)
     ends = make_ends(p)
     pts = np.random.default_rng(0).uniform(-1, 1, size=(2000, 3)) * [300, 70, 9.5]
@@ -170,6 +199,7 @@ def test_rings_are_evenly_spaced_without_wobble():
 
 
 def test_the_two_ends_differ():
+    """The two ends of a board always get different ring centres."""
     differ = sum(
         (lambda c: (c["end_a"].y, c["end_a"].z) != (c["end_b"].y, c["end_b"].z))(make_ends(params(seed=s)).centres)
         for s in range(20)
@@ -178,6 +208,7 @@ def test_the_two_ends_differ():
 
 
 def test_wobble_stays_small():
+    """Even at full wobble, end rings shift by no more than about half a ring."""
     p = params(end_wobble=1.0)
     ends = make_ends(p)
     pts = np.random.default_rng(1).uniform(-1, 1, size=(2000, 3)) * [300, 70, 9.5]
@@ -191,6 +222,7 @@ def test_wobble_stays_small():
 # --------------------------------------------------------------------------
 
 def test_end_settings_do_not_change_the_grain():
+    """Changing the end-ring settings leaves the long-face grain exactly as it was."""
     mesh = rounded_box(params())
     a = board_patterns(params(), mesh)
     b = board_patterns(params(end_spacing=9.0, end_center="TOP", end_wobble=0.7), mesh)
@@ -199,11 +231,13 @@ def test_end_settings_do_not_change_the_grain():
 
 
 def test_latewood_band():
+    """The preview's latewood band is dark only near the end of each ring."""
     assert latewood(np.array([0.0, 0.5, 0.7]))[...].max() == 0.0
     assert latewood(np.array([0.95, 0.99])).min() == 1.0
 
 
 def test_preview_greys_out_unselected_faces():
+    """Faces that won't be weathered show grey in the preview; weathered faces don't."""
     p = params()
     p.faces = {f: f != "top" for f in FACE_NAMES}
     mesh = rounded_box(p)
@@ -215,6 +249,7 @@ def test_preview_greys_out_unselected_faces():
 
 
 def test_preview_shows_both_ring_patterns():
+    """Both the long-face grain and the end rings show as clear light and dark bands."""
     p = params()
     p.faces = {f: True for f in FACE_NAMES}
     mesh = rounded_box(p)
@@ -226,6 +261,7 @@ def test_preview_shows_both_ring_patterns():
 
 
 def test_build_returns_a_colour_per_vertex():
+    """A built board has one valid colour per vertex."""
     r = build(params(scale=48.0, resolution=0.1))
     assert r.preview.shape == r.vertices.shape
     assert (r.preview >= 0).all() and (r.preview <= 1).all()

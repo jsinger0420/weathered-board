@@ -29,6 +29,15 @@ CRACK = np.array([0.12, 0.08, 0.05])  # checks
 
 @dataclass
 class Patterns:
+    """Everything about a board's pattern, evaluated at each mesh vertex.
+
+    ``long_phase`` and ``end_phase`` are ring phases (0-1) from the virtual
+    log and the end semicircles. ``knot_core`` (1 inside a knot),
+    ``long_check`` and ``end_check`` (0-1 crack strength) and ``patch``
+    (share of full depth) come from the extra features. The objects that
+    made them are kept for tests and later checks.
+    """
+
     log: VirtualLog
     ends: EndRings
     long_phase: np.ndarray  # (N,) ring phase from the virtual log
@@ -41,13 +50,21 @@ class Patterns:
     patch: np.ndarray | None = None  # (N,) share of full depth the wear reaches
 
     def phase_for_face(self, face: str) -> np.ndarray:
+        """The ring phase that applies to ``face``: end rings on the ends, the virtual log elsewhere."""
         return self.end_phase if face in END_FACES else self.long_phase
 
     def check_for_face(self, face: str) -> np.ndarray:
+        """Crack strength that applies to ``face``: end cracks on the ends, long cracks elsewhere."""
         return self.end_check if face in END_FACES else self.long_check
 
 
 def board_patterns(params: BoardParams, mesh: BoxMesh) -> Patterns:
+    """Work out every pattern for a board at each vertex of ``mesh``.
+
+    Each part draws from its own random stream of ``params.seed``, so the same
+    seed and settings always give the same board, and changing one part's
+    settings never reshuffles another.
+    """
     rng = streams(params.seed)
     v = mesh.vertices
     log = VirtualLog(params, rng["grain"])
@@ -55,6 +72,7 @@ def board_patterns(params: BoardParams, mesh: BoxMesh) -> Patterns:
     knots = Knots(params, rng["knots"], log)
 
     def rings_at(points):
+        """Unwrapped ring count at ``points``, with the grain bent around the knots."""
         return log.rings(points, knots.bend(points))
 
     rings = rings_at(v)
@@ -78,9 +96,12 @@ def latewood(phase: np.ndarray) -> np.ndarray:
 
 
 def preview_colors(params: BoardParams, mesh: BoxMesh, patterns: Patterns) -> np.ndarray:
-    """(N, 3) linear RGB: light earlywood, dark latewood rings, and grey on
-    faces that won't be weathered. Across a rounded edge the colours blend
-    by face weight, as the carving will."""
+    """Per-vertex preview colours (N, 3), in linear RGB.
+
+    Light earlywood, dark latewood rings, darker knots and cracks, and grey
+    on faces that won't be weathered. Across a rounded edge the colours
+    blend by face weight, as the carving will.
+    """
     w = mesh.face_weights
     total = np.maximum(w.sum(axis=1), 1e-12)
     dark = np.zeros(len(w))

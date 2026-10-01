@@ -12,6 +12,12 @@ from .core.weather import detail_factor
 
 
 def _settings(context):
+    """The settings the panel should show and edit, and whether they are a board's.
+
+    With a weathered board active this is that board's own settings, so edits
+    change (and with live update, rebuild) it. Otherwise it is the scene's
+    settings, used for the next board added.
+    """
     obj = context.active_object
     if obj is not None and obj.weathered_board.is_board:
         return obj.weathered_board, True
@@ -57,6 +63,8 @@ def _draw_detail_info(col, params):
 
 
 class WBOARD_PT_main(bpy.types.Panel):
+    """The Weathered Board tab: add boards, size and scale, faces to weather and seed."""
+
     bl_label = "Weathered Board"
     bl_idname = "WBOARD_PT_main"
     bl_space_type = "VIEW_3D"
@@ -64,6 +72,13 @@ class WBOARD_PT_main(bpy.types.Panel):
     bl_category = "Weathered Board"
 
     def draw(self, context):
+        """Draw the main section.
+
+        From the top: the board being edited, Add / Regenerate / New Seed, the
+        Live Update and Show Grain Pattern switches, any build error, size and
+        scale with the printed size and expected vertex count, faces to
+        weather, and the seed.
+        """
         layout = self.layout
         s, on_board = _settings(context)
         layout.label(text="Selected board" if on_board else "New board settings",
@@ -110,6 +125,8 @@ class WBOARD_PT_main(bpy.types.Panel):
 
 
 class WBOARD_PT_edges(bpy.types.Panel):
+    """Rounding for each of the 12 edges, with buttons to set a group at once."""
+
     bl_label = "Edge Rounding"
     bl_parent_id = "WBOARD_PT_main"
     bl_space_type = "VIEW_3D"
@@ -118,6 +135,10 @@ class WBOARD_PT_edges(bpy.types.Panel):
     bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
+        """Draw the edge-group buttons, then one slider per edge.
+
+        The sliders are grouped as long edges, end A and end B.
+        """
         layout = self.layout
         s, on_board = _settings(context)
         row = layout.row(align=True)
@@ -133,6 +154,8 @@ class WBOARD_PT_edges(bpy.types.Panel):
 
 
 class WBOARD_PT_weathering(bpy.types.Panel):
+    """How the wear looks: depth, grain, end rings, knots, cracks and patchiness."""
+
     bl_label = "Weathering"
     bl_parent_id = "WBOARD_PT_main"
     bl_space_type = "VIEW_3D"
@@ -141,6 +164,10 @@ class WBOARD_PT_weathering(bpy.types.Panel):
     bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
+        """Draw the weathering settings in three groups.
+
+        Overall wear, the long faces' grain, and the end rings.
+        """
         layout = self.layout
         s, _ = _settings(context)
         col = layout.column(align=True)
@@ -171,6 +198,8 @@ class WBOARD_PT_weathering(bpy.types.Panel):
 
 
 class WBOARD_PT_printing(bpy.types.Panel):
+    """Printer settings, Check Printability with its results, and STL export."""
+
     bl_label = "Printing"
     bl_parent_id = "WBOARD_PT_main"
     bl_space_type = "VIEW_3D"
@@ -179,6 +208,10 @@ class WBOARD_PT_printing(bpy.types.Panel):
     bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
+        """Draw the printer settings, the Check and Export buttons, and results.
+
+        The last check's results appear if the board has any.
+        """
         layout = self.layout
         s, _ = _settings(context)
         layout.prop(s, "printer")
@@ -198,8 +231,10 @@ REPORT_ICONS = {"OK": "CHECKMARK", "INFO": "INFO", "WARNING": "ERROR", "ERROR": 
 
 
 def _draw_report(layout, report: str) -> None:
-    """The last Check Printability result: one line per finding, its detail
-    underneath in small type."""
+    """Draw the last Check Printability result.
+
+    One line per finding, its detail underneath in small type.
+    """
     layout.label(text="Last check")
     for line in report.splitlines():
         level, title, detail = (line.split("\t") + ["", "", ""])[:3]

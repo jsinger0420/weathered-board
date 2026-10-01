@@ -1,4 +1,11 @@
-"""Operators: add, regenerate, reseed, set edge groups, export STL."""
+"""Operators: the buttons in the Weathered Board panel.
+
+Add, Regenerate, New Seed, the edge-group buttons, Check Printability and
+Export STL. Each operator's docstring is the tooltip Blender shows for its
+button. ``rebuild`` is shared with live update in properties.py, and the
+object-level printability checks (open edges, self-intersections, real
+size) live here because they need Blender's mesh tools.
+"""
 
 import os
 
@@ -18,10 +25,19 @@ SEED_MAX = 2**31 - 1
 
 
 def _random_seed() -> int:
+    """A fresh seed for a new board: a random positive 31-bit integer.
+
+    Blender integer properties are signed 32-bit, so seeds stay below 2**31.
+    """
     return int(np.random.default_rng().integers(1, SEED_MAX))
 
 
 def _active_board(context):
+    """The active object if it is a weathered board, otherwise None.
+
+    Operators that act on one board (Regenerate, New Seed) use this both in
+    ``poll``, to grey out their button, and in ``execute``.
+    """
     obj = context.active_object
     if obj is not None and obj.weathered_board.is_board:
         return obj
@@ -55,8 +71,10 @@ SIZE_TOLERANCE = 0.005  # 0.5%
 
 
 def object_findings(obj, params) -> list[Finding]:
-    """Checks on the board as it actually is in the scene, which may have
-    been edited, scaled or rotated since it was built."""
+    """Checks on the board as it actually is in the scene.
+
+    It may have been edited, scaled or rotated since it was built.
+    """
     out: list[Finding] = []
     bm = bmesh.new()
     try:
@@ -110,11 +128,20 @@ def run_checks(obj) -> list[Finding]:
 
 
 def store_report(obj, findings: list[Finding]) -> None:
+    """Save printability findings on the board so the panel can show them.
+
+    Stored as one finding per line, ``LEVEL<tab>title<tab>detail``, in the
+    board's hidden ``check_report`` property. A rebuild clears it.
+    """
     obj.weathered_board.check_report = "\n".join(
         f"{f.level}\t{f.title}\t{f.detail}" for f in findings)
 
 
 def worst(findings: list[Finding]) -> str:
+    """The most serious level among ``findings``: ERROR, WARNING, INFO or OK.
+
+    Used to summarise several boards' checks in one status-bar message.
+    """
     for level in (ERROR, WARNING, INFO):
         if any(f.level == level for f in findings):
             return level
@@ -129,6 +156,14 @@ class WBOARD_OT_add(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        """Build ``count`` boards from the scene's settings and add them.
+
+        Each board gets its own seed (consecutive from a random start, or from
+        the locked seed), its own copy of the settings, and a place beside the
+        previous one along Y. Sets the scene to millimetres so exports come out
+        the right size. Stops at the first board that fails to build and reports
+        why.
+        """
         template = context.scene.weathered_board
         mesh_io.set_scene_millimetres(context.scene)
         base_seed = template.seed if template.lock_seed else _random_seed()
@@ -166,9 +201,11 @@ class WBOARD_OT_regenerate(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
+        """Only available when the active object is a weathered board."""
         return _active_board(context) is not None
 
     def execute(self, context):
+        """Rebuild the active board, reporting any build error."""
         error = rebuild(_active_board(context))
         if error:
             self.report({"ERROR"}, error)
@@ -185,9 +222,15 @@ class WBOARD_OT_new_seed(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
+        """Only available when the active object is a weathered board."""
         return _active_board(context) is not None
 
     def execute(self, context):
+        """Give the active board a new random seed and rebuild it once.
+
+        Live update is suspended while the seed changes, so the board is not
+        rebuilt twice (once by the timer and once here).
+        """
         obj = _active_board(context)
         from . import properties
         properties._suspended = True  # rebuild once below, not via live update
@@ -239,9 +282,16 @@ class WBOARD_OT_set_edges(bpy.types.Operator):
             ". Each edge can still be adjusted on its own afterwards"
 
     def invoke(self, context, event):
+        """Ask for the rounding value in a small pop-up before applying it."""
         return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context):
+        """Set every edge in the chosen group to the chosen rounding.
+
+        Acts on the selected board's settings (``target`` = OBJECT) or on the
+        settings for new boards (SCENE). Live update is suspended while the four
+        or twelve values change, then the board is rebuilt once.
+        """
         obj = _active_board(context)
         settings = obj.weathered_board if (self.target == "OBJECT" and obj) else context.scene.weathered_board
         from . import properties
@@ -264,9 +314,15 @@ class WBOARD_OT_check(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
+        """Only available when at least one selected object is a weathered board."""
         return any(o.weathered_board.is_board for o in context.selected_objects)
 
     def execute(self, context):
+        """Check every selected board and store the findings on each.
+
+        The findings appear in the Printing panel. One message in the status bar
+        sums up the worst result across all the boards checked.
+        """
         boards = [o for o in context.selected_objects if o.weathered_board.is_board]
         summary = {OK: 0, INFO: 0, WARNING: 0, ERROR: 0}
         for obj in boards:
@@ -302,9 +358,17 @@ class WBOARD_OT_export_stl(bpy.types.Operator, ExportHelper):
 
     @classmethod
     def poll(cls, context):
+        """Only available when at least one selected object is a weathered board."""
         return any(o.weathered_board.is_board for o in context.selected_objects)
 
     def execute(self, context):
+        """Write the selected boards to STL, in millimetres.
+
+        All boards go into the chosen file, or with ``one_file_per_board`` each
+        goes into its own file: the chosen name plus ``_<board name>``, with any
+        character a file name can't hold replaced by ``_``. Only boards are
+        exported, even if other objects are selected too.
+        """
         mesh_io.set_scene_millimetres(context.scene)
         boards = [o for o in context.selected_objects if o.weathered_board.is_board]
         if not self.one_file_per_board:

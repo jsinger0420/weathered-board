@@ -5,7 +5,8 @@ a log whose centre line (the pith) runs roughly along the board, outside
 it. A point's ring phase comes from its distance to that line: lines of
 equal distance are the growth rings, and where a flat face slices through
 them they show as long, curving grain lines (cathedral arches on the face
-nearest the pith, near-parallel lines on the faces beside it).
+nearest the pith, near-parallel lines on the faces beside it). Knots push
+the distance outward near each branch, so the grain flows around them.
 
 All lengths are full-size millimetres.
 """
@@ -28,6 +29,15 @@ class VirtualLog:
     """The hidden log one board was sawn from. Built once per board."""
 
     def __init__(self, params: BoardParams, rng: np.random.Generator):
+        """Invent the log this board was sawn from.
+
+        Places the pith (70% of the time behind the top or bottom, for flat-sawn
+        cathedral grain), tilts it up to 2 degrees, sets how much it wobbles and
+        how much the rings are distorted (both from ``grain_waviness``), and
+        tabulates the ring count against distance, with ring widths varying
+        within ``ring_spacing`` times the detail boost. ``rng`` is the board's
+        "grain" stream.
+        """
         self.half = 0.5 * np.array(params.size, dtype=float)
         hy, hz = self.half[1], self.half[2]
         width = params.width
@@ -95,8 +105,10 @@ class VirtualLog:
         return out
 
     def radius(self, points: np.ndarray) -> np.ndarray:
-        """Distance of each point from the (wobbling) pith line, before
-        ring distortion."""
+        """Distance of each point from the (wobbling) pith line.
+
+        This is before ring distortion and knot bending.
+        """
         q = points - self.pith_point - self.pith_offset(points[:, 0])
         along = q @ self.pith_dir
         return np.linalg.norm(q - along[:, None] * self.pith_dir, axis=1)
@@ -111,9 +123,12 @@ class VirtualLog:
         return self.pith_point + t * self.pith_dir + self.pith_offset(np.array([float(x)]))[0]
 
     def rings(self, points: np.ndarray, bend: np.ndarray | None = None) -> np.ndarray:
-        """Unwrapped ring count at each point (whole rings from the pith plus
-        the fraction into the current one). ``bend`` adds to the distance
-        from the pith, which is how knots push rings aside."""
+        """Unwrapped ring count at each point.
+
+        Whole rings from the pith plus the fraction into the current one.
+        ``bend`` adds to the distance from the pith, which is how knots push
+        rings aside.
+        """
         points = np.asarray(points, dtype=np.float64)
         r = self.radius(points)
         r = r + self.distort_amp * self.distort_noise.fbm(scaled(points, DISTORTION_SCALE), octaves=DISTORTION_OCTAVES)
@@ -122,6 +137,9 @@ class VirtualLog:
         return self.ring_count(np.maximum(r, 0.0))
 
     def phase(self, points: np.ndarray, bend: np.ndarray | None = None) -> np.ndarray:
-        """Ring phase in [0, 1) for each point: 0 at the start of a year's
-        soft earlywood, rising to 1 at its hard latewood edge."""
+        """Ring phase in [0, 1) for each point.
+
+        0 at the start of a year's soft earlywood, rising to 1 at its hard
+        latewood edge.
+        """
         return np.mod(self.rings(points, bend), 1.0)

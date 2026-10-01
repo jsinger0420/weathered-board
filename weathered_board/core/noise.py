@@ -25,6 +25,11 @@ _GRADIENTS = np.array(
 
 
 def _fade(t: np.ndarray) -> np.ndarray:
+    """Perlin's quintic fade curve, 6t^5 - 15t^4 + 10t^3.
+
+    It runs from 0 to 1 with zero slope and curvature at both ends, so the
+    noise has no visible seams along the lattice lines.
+    """
     return t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
 
 
@@ -32,13 +37,21 @@ class Noise:
     """Seeded 3D gradient noise, roughly in [-1, 1], zero at lattice points."""
 
     def __init__(self, rng: np.random.Generator):
+        """Shuffle a permutation table from ``rng`` and pick a random offset.
+
+        The offset keeps the lattice points, where the noise is always 0, away
+        from round-number coordinates such as the board's faces.
+        """
         perm = rng.permutation(256)
         self._perm = np.concatenate([perm, perm]).astype(np.int64)
-        # A random offset keeps the zero-valued lattice points away from
-        # round-number coordinates such as the board's faces.
         self._offset = rng.uniform(0.0, 256.0, size=3)
 
     def __call__(self, points: np.ndarray) -> np.ndarray:
+        """Noise value at each point of ``points`` (N, 3), roughly in [-1, 1].
+
+        Smooth, with features about 1 unit across; callers divide their
+        coordinates by a feature size first (see ``scaled``).
+        """
         p = np.asarray(points, dtype=np.float64) + self._offset
         cell = np.floor(p)
         f = p - cell
@@ -47,6 +60,7 @@ class Noise:
         perm = self._perm
 
         def corner(dx: int, dy: int, dz: int) -> np.ndarray:
+            """Dot product of one lattice corner's gradient with each point's offset from it."""
             h = perm[perm[perm[i[:, 0] + dx] + i[:, 1] + dy] + i[:, 2] + dz] % 12
             g = _GRADIENTS[h]
             return g[:, 0] * (f[:, 0] - dx) + g[:, 1] * (f[:, 1] - dy) + g[:, 2] * (f[:, 2] - dz)

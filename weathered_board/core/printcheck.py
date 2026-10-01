@@ -22,6 +22,12 @@ MIN_CUT_FEATURES = 0.5  # shallowest carving worth printing, in smallest feature
 
 @dataclass
 class Finding:
+    """One result of a printability check.
+
+    ``level`` is OK, INFO, WARNING or ERROR; ``title`` a short name shown in
+    the panel; ``detail`` an explanation, often with a suggested fix.
+    """
+
     level: str  # OK, INFO, WARNING or ERROR
     title: str
     detail: str = ""
@@ -38,8 +44,10 @@ def is_watertight(triangles: np.ndarray) -> bool:
 
 
 def check_board(params: BoardParams, triangles: np.ndarray, face_depth: dict[str, float]) -> list[Finding]:
-    """Checks on a built board. ``face_depth`` is the deepest cut on each
-    face, in printed mm."""
+    """Checks on a built board.
+
+    ``face_depth`` is the deepest cut on each face, in printed mm.
+    """
     out: list[Finding] = []
     scale = params.scale
 

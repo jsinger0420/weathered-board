@@ -18,11 +18,18 @@ from .params import BoardParams
 
 
 def _smoothstep(t: np.ndarray) -> np.ndarray:
+    """Smooth 0-to-1 ramp: 0 below 0, 1 above 1, an S-curve in between.
+
+    Used for every soft edge here (knot rims, crack sides, tapers), because
+    its slope is zero at both ends, so there is no visible crease where a
+    feature starts or stops.
+    """
     t = np.clip(t, 0.0, 1.0)
     return t * t * (3.0 - 2.0 * t)
 
 
 def _unit(v: np.ndarray) -> np.ndarray:
+    """The vector ``v`` scaled to length 1."""
     return v / np.linalg.norm(v)
 
 
@@ -37,6 +44,12 @@ KNOT_REACH = 2.5  # how far from the knot the grain bends, in knot radii
 
 @dataclass
 class Knot:
+    """One knot: a branch running out from the pith through the board.
+
+    ``base`` is where it leaves the pith, ``axis`` the unit direction it
+    grows in, and ``radius`` its radius, all in full-size mm.
+    """
+
     base: np.ndarray  # where the branch leaves the pith
     axis: np.ndarray  # unit direction of the branch, out from the pith
     radius: float
@@ -52,6 +65,13 @@ class Knots:
     """
 
     def __init__(self, params: BoardParams, rng: np.random.Generator, log: VirtualLog):
+        """Place a random number of knots (between ``params.knots`` min and max).
+
+        Each leaves the pith somewhere in the middle 80% of the board and is aimed
+        through a point inside the board, so it always crosses it. Its radius is
+        4-12% of the board width, but never under 4 mesh vertices, so it carves
+        cleanly. ``log`` gives the pith line; ``rng`` is the "knots" stream.
+        """
         self.knots: list[Knot] = []
         lo, hi = params.knots
         count = int(rng.integers(lo, max(lo, hi) + 1))
@@ -70,6 +90,12 @@ class Knots:
         self.soft = 2.0 * grid  # width of the knot's soft rim
 
     def _distance(self, knot: Knot, points: np.ndarray) -> np.ndarray:
+        """Distance from each point to a knot's branch axis.
+
+        Points behind where the branch leaves the pith get infinity, so the
+        branch only extends outward, never back through the other side of the
+        pith.
+        """
         q = points - knot.base
         along = q @ knot.axis
         d = np.linalg.norm(q - along[:, None] * knot.axis, axis=1)
@@ -105,6 +131,15 @@ LONG_FACE_WEIGHTS = {"top": "width", "bottom": "width", "front": "thickness", "b
 
 @dataclass
 class LongCheck:
+    """One crack on a long face, running along the board.
+
+    ``axis`` and ``sign`` identify the face (axis 2 is top/bottom, 1 is
+    front/back). ``across`` is its position across that face, ``x`` its middle
+    along the board and ``length`` its length. ``wander`` holds the amplitude,
+    wavelength and phase of two gentle waves that keep it from being ruler
+    straight. All in full-size mm.
+    """
+
     axis: int  # axis of the face it is on (1 for front/back, 2 for top/bottom)
     sign: int  # which side of that axis
     across: float  # position across the face (z on front/back, y on top/bottom)
@@ -115,6 +150,13 @@ class LongCheck:
 
 @dataclass
 class EndCheck:
+    """One radial crack on an end.
+
+    It starts ``start`` mm out from the ring centre ``origin`` (y, z) and runs
+    ``length`` mm along the unit ``direction``, on end ``end`` ("end_a" or
+    "end_b").
+    """
+
     end: str  # end_a or end_b
     origin: np.ndarray  # (y, z) of the ring centre
     direction: np.ndarray  # unit (y, z), out from the centre
@@ -123,14 +165,25 @@ class EndCheck:
 
 
 class Checks:
-    """Narrow cracks. On the long faces they split along the fibres: nearly
-    straight lines along the board with a slight wander, tapering at both
-    tips and cutting across the curving ridges. On the ends they run
-    straight out from the ring centre, opening toward the outside as end
-    checks do."""
+    """Narrow cracks.
+
+    On the long faces they split along the fibres: nearly straight lines
+    along the board with a slight wander, tapering at both tips and cutting
+    across the curving ridges. On the ends they run straight out from the
+    ring centre, opening toward the outside as end checks do.
+    """
 
     def __init__(self, params: BoardParams, rng: np.random.Generator,
                  rings_at, ends: EndRings, mean_spacing: float):
+        """Scatter cracks over the board.
+
+        Long-face cracks average 6 per metre at ``checks`` = 1, only on long faces
+        being weathered, with wider faces getting more. End cracks average 4 per
+        end at ``checks`` = 1, aimed into the end from its ring centre. Crack
+        width is a quarter of the mean ring spacing, never under 4 mesh vertices.
+        ``rings_at`` and ``mean_spacing`` describe the grain; ``ends`` gives the
+        ring centres; ``rng`` is the "checks" stream.
+        """
         grid = params.resolution * params.scale
         self.width = max(CHECK_WIDTH_RINGS * mean_spacing, 4.0 * grid)
         self.mean_spacing = mean_spacing
@@ -212,15 +265,26 @@ PATCH_SCALE = (300.0, 0.5, 0.5)  # mm along; the cross-board sizes are shares of
 
 
 class Patches:
-    """Low-frequency variation in wear: 1 = full depth, down to
-    1 - patchiness where the board was sheltered."""
+    """Low-frequency variation in how deeply the board is worn.
+
+    1 = full depth, down to 1 - patchiness where the board was sheltered.
+    """
 
     def __init__(self, params: BoardParams, rng: np.random.Generator):
+        """Set up the smooth noise map that decides where the board was sheltered.
+
+        Features are about 300 mm along the board and half its width across.
+        ``rng`` is the "patch" stream.
+        """
         self.noise = Noise(rng)
         self.amount = params.patchiness
         self.scale = (PATCH_SCALE[0], PATCH_SCALE[1] * params.width, PATCH_SCALE[2] * params.width)
 
     def __call__(self, points: np.ndarray) -> np.ndarray:
+        """Share of full wear depth at each point, from 1 - patchiness up to 1.
+
+        1 means fully worn. All 1 when patchiness is 0.
+        """
         if self.amount <= 0:
             return np.ones(len(points))
         n = self.noise.fbm(scaled(points, self.scale), octaves=3)

@@ -69,6 +69,11 @@ _pending: set[str] = set()  # names of board objects waiting to rebuild
 
 
 def _flush_pending():
+    """Rebuild every board queued by live update, then stop.
+
+    Runs from a one-shot Blender timer. Boards deleted or renamed since they
+    were queued are skipped. Returning None tells Blender not to repeat it.
+    """
     from . import operators  # late import: operators imports this module
 
     names = list(_pending)
@@ -96,6 +101,10 @@ def _changed(self, context):
 
 
 def _printer_update(self, context):
+    """Fill in the chosen printer's typical Resolution and Smallest Feature.
+
+    Both can then be adjusted. Also queues a rebuild.
+    """
     self.resolution, self.min_feature = PRINTER_DEFAULTS[self.printer]
     _changed(self, context)
 
@@ -120,6 +129,11 @@ def _show_pattern_update(self, context):
 
 
 def _round(name):
+    """Make the rounding slider for one edge, named and described for it.
+
+    ``name`` is an edge key such as ``"a_top"``; its tooltip says which faces
+    the edge joins.
+    """
     return FloatProperty(
         name=name.replace("_", " ").title(),
         description=f"Rounding of the edge {EDGE_HELP[name]}. "
@@ -130,6 +144,11 @@ def _round(name):
 
 
 def _weather(face, default=True):
+    """Make the checkbox that turns weathering on or off for one face.
+
+    ``face`` is a face key such as ``"end_a"``; its tooltip says which face
+    that is. Only the bottom starts off, so boards print flat on the bed.
+    """
     return BoolProperty(
         name=face.replace("_", " ").title(),
         description=f"Carve weathering into {FACE_HELP[face]}. "
@@ -139,6 +158,15 @@ def _weather(face, default=True):
 
 
 class WBOARD_Settings(bpy.types.PropertyGroup):
+    """Every setting for one board, as shown in the sidebar panel.
+
+    One copy lives on the Scene (the settings for the next board added) and
+    one on each board object (that board's own settings, so it can be
+    rebuilt or tweaked later). ``to_params`` turns them into the plain values
+    the core builder works with. Weathering sizes are full-size millimetres;
+    length, width and thickness are in ``units``.
+    """
+
     is_board: BoolProperty(default=False, options={"HIDDEN"})
 
     # Size and scale
@@ -353,6 +381,13 @@ class WBOARD_Settings(bpy.types.PropertyGroup):
         )
 
     def copy_from(self, other: "WBOARD_Settings") -> None:
+        """Copy every setting from ``other`` into this one.
+
+        Used to give a new board its own copy of the scene's settings. Live
+        update is suspended during the copy, so it doesn't queue a rebuild per
+        setting. The pattern-preview switch, error and check report are not
+        copied; they belong to each copy.
+        """
         global _suspended
         _suspended = True
         try:
@@ -364,10 +399,12 @@ class WBOARD_Settings(bpy.types.PropertyGroup):
 
 
 def register():
+    """Attach a ``weathered_board`` settings group to every Scene and Object."""
     bpy.types.Scene.weathered_board = bpy.props.PointerProperty(type=WBOARD_Settings)
     bpy.types.Object.weathered_board = bpy.props.PointerProperty(type=WBOARD_Settings)
 
 
 def unregister():
+    """Remove the settings groups added by ``register``."""
     del bpy.types.Object.weathered_board
     del bpy.types.Scene.weathered_board

@@ -21,16 +21,22 @@ def euler_ok(verts: np.ndarray, tris: np.ndarray) -> bool:
 
 
 def signed_volume(verts: np.ndarray, tris: np.ndarray) -> float:
+    """Volume enclosed by a closed triangle mesh, by the divergence theorem.
+
+    Positive when the triangles are wound so their normals point outward.
+    """
     v = verts[tris]
     return float(np.einsum("ij,ij->i", v[:, 0], np.cross(v[:, 1], v[:, 2])).sum() / 6.0)
 
 
 def triangle_normals(verts: np.ndarray, tris: np.ndarray) -> np.ndarray:
+    """Unit normal of each triangle, from its winding order."""
     v = verts[tris]
     n = np.cross(v[:, 1] - v[:, 0], v[:, 2] - v[:, 0])
     return n / np.linalg.norm(n, axis=1, keepdims=True)
 
 
 def min_triangle_area(verts: np.ndarray, tris: np.ndarray) -> float:
+    """Area of the smallest triangle; near 0 means a degenerate sliver."""
     v = verts[tris]
     return float(0.5 * np.linalg.norm(np.cross(v[:, 1] - v[:, 0], v[:, 2] - v[:, 0]), axis=1).min())

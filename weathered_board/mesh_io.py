@@ -16,8 +16,10 @@ def set_scene_millimetres(scene: bpy.types.Scene) -> None:
 
 def fill_mesh(mesh: bpy.types.Mesh, verts: np.ndarray, tris: np.ndarray,
               colors: np.ndarray | None = None) -> None:
-    """Write triangles (and optional per-vertex colours) into an empty mesh
-    with foreach_set, which is fast for dense meshes."""
+    """Write triangles, and optional per-vertex colours, into an empty mesh.
+
+    Uses foreach_set, which is fast for dense meshes.
+    """
     n_verts, n_tris = len(verts), len(tris)
     mesh.vertices.add(n_verts)
     mesh.vertices.foreach_set("co", verts.astype(np.float32).ravel())
@@ -48,6 +50,12 @@ def set_colors(mesh: bpy.types.Mesh, colors: np.ndarray) -> None:
 
 def new_board_object(context, name: str, verts: np.ndarray, tris: np.ndarray,
                      colors: np.ndarray | None = None) -> bpy.types.Object:
+    """Create a new mesh object from board arrays and link it into the scene.
+
+    ``verts`` are printed-millimetre positions, ``tris`` triangle indices and
+    ``colors`` an optional per-vertex pattern preview. The object is linked
+    into the active collection; the caller names, places and selects it.
+    """
     mesh = bpy.data.meshes.new(name)
     fill_mesh(mesh, verts, tris, colors)
     obj = bpy.data.objects.new(name, mesh)
@@ -58,7 +66,9 @@ def new_board_object(context, name: str, verts: np.ndarray, tris: np.ndarray,
 def replace_mesh(obj: bpy.types.Object, verts: np.ndarray, tris: np.ndarray,
                  colors: np.ndarray | None = None) -> None:
     """Give an existing board a freshly built mesh, dropping the old one.
-    Materials on the board are carried over."""
+
+    Materials on the board are carried over.
+    """
     old = obj.data
     mesh = bpy.data.meshes.new(old.name)
     fill_mesh(mesh, verts, tris, colors)

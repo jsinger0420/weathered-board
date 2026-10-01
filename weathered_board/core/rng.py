@@ -16,5 +16,9 @@ STREAMS = ("grain", "ends", "knots", "checks", "patch")
 
 
 def streams(seed: int) -> dict[str, np.random.Generator]:
+    """One independent, repeatable random generator per name in STREAMS.
+
+    The same ``seed`` always gives the same generators.
+    """
     children = np.random.SeedSequence(int(seed)).spawn(len(STREAMS))
     return {name: np.random.default_rng(child) for name, child in zip(STREAMS, children)}

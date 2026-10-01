@@ -4,6 +4,12 @@ See docs/DESIGN.md, "Turning rings into ridges" and "Combining into a
 displacement". In weathered wood the soft earlywood wears away and the
 hard latewood stands proud, so each face's ring phase becomes a depth:
 zero on the latewood ridge, up to ``depth`` in the earlywood valleys.
+Knot cores wear less, cracks cut deeper, and patchy wear scales the depth.
+
+The carving is done in two parts that each cannot fold the mesh (a smooth
+recession of the whole surface, then the ridges raised back up), followed
+by a repair pass that eases back any carving that would still turn a
+triangle over. See ``carve``.
 
 All lengths are full-size millimetres.
 """
@@ -34,6 +40,12 @@ MAX_CHECK_FRACTION = 0.35  # checks never deeper than this share of the thicknes
 
 @dataclass
 class Carving:
+    """The carved board, in full-size millimetres.
+
+    ``depth`` is the cut at each vertex, measured straight into the faces (the
+    largest move along any one axis), and is 0 on latewood ridges.
+    """
+
     vertices: np.ndarray  # (N, 3) carved positions, full-size mm
     depth: np.ndarray  # (N,) cut at each vertex, measured straight into the faces, mm
 
@@ -70,34 +82,42 @@ def samples_per_ring(ring_spacing: float, params: BoardParams) -> float:
 
 
 def detail_factor(ring_spacing: float, params: BoardParams) -> float:
-    """1 when the mesh is fine enough to carve each ring, easing to 0 when
-    it is too coarse. A coarse mesh cannot show ridges; carving them anyway
-    would only give random-looking jagged noise, so the carving fades out
-    instead. The ridges stay on the original surface either way, so the
-    board keeps its size."""
+    """1 when the mesh is fine enough to carve each ring, easing to 0 when it is too coarse.
+
+    A coarse mesh cannot show ridges; carving them anyway would only give
+    random-looking jagged noise, so the carving fades out instead. The
+    ridges stay on the original surface either way, so the board keeps its
+    size.
+    """
     k = samples_per_ring(ring_spacing, params)
     t = (k - MIN_SAMPLES_PER_RING) / (FULL_SAMPLES_PER_RING - MIN_SAMPLES_PER_RING)
     return float(np.clip(t, 0.0, 1.0))
 
 
 def effective_half_width(ring_spacing: float, params: BoardParams) -> float:
-    """The ridge half-width actually carved: the one asked for by
-    ridge_sharpness, widened where the mesh is too coarse for it. A ridge
-    wall that falls on fewer than MIN_SAMPLES_PER_WALL vertices comes out
-    as a jagged staircase wherever rings cross the grid at an angle (as
-    the end semicircles always do); widening it keeps the ridge smooth."""
+    """The ridge half-width actually carved, widened if the mesh is too coarse.
+
+    Starts from the one asked for by ridge_sharpness. A ridge wall that
+    falls on fewer than MIN_SAMPLES_PER_WALL vertices comes out as a jagged
+    staircase wherever rings cross the grid at an angle (as the end
+    semicircles always do); widening it keeps the ridge smooth.
+    """
     k = samples_per_ring(ring_spacing, params)
     return max(ridge_half_width(params.ridge_sharpness), MIN_SAMPLES_PER_WALL / max(k, 1e-9))
 
 
 def _smoothstep(t: np.ndarray) -> np.ndarray:
+    """Smooth 0-to-1 ramp with zero slope at both ends (see features._smoothstep)."""
     t = np.clip(t, 0.0, 1.0)
     return t * t * (3.0 - 2.0 * t)
 
 
 def _border_taper(p: np.ndarray, half: np.ndarray, axis: int, margin: float, depth: float) -> np.ndarray:
-    """0 at a face's border, rising to 1 at ``margin`` mm inside it (or at
-    FADE_SLOPE x depth, if that is wider, so the fade is never too steep)."""
+    """Depth factor near a face's border: 0 at the border, 1 inside the margin.
+
+    It reaches 1 at ``margin`` mm inside the border, or at FADE_SLOPE x
+    depth if that is wider, so the fade is never too steep.
+    """
     if margin <= 0:
         return np.ones(len(p))
     i, j = (axis + 1) % 3, (axis + 2) % 3
@@ -107,8 +127,7 @@ def _border_taper(p: np.ndarray, half: np.ndarray, axis: int, margin: float, dep
 
 def _neighbour_fade(p: np.ndarray, half: np.ndarray, face: str, depth: np.ndarray,
                     face_depth: dict[str, float]) -> np.ndarray:
-    """Ease a face's depth down to each shallower neighbour's depth before
-    their shared edge.
+    """Ease a face's depth down to a shallower neighbour's before their edge.
 
     Where a weathered face meets an unweathered one (or a shallower one,
     such as a long face beside an end with its own depth), the depth would
@@ -304,6 +323,11 @@ def _repair_folds(mesh: BoxMesh, recession: np.ndarray, lift: np.ndarray):
     candidates = np.arange(len(tris))
 
     def flipped_vertices():
+        """Vertices of triangles that are currently turned over, or None if none are.
+
+        Also narrows the triangles to recheck next time to those around these
+        vertices, since only they can change.
+        """
         nonlocal candidates
         t = tris[candidates]
         after = _triangle_orientation(p + recession + lift, t)
