@@ -83,7 +83,28 @@ Turning a mesh into a FreeCAD solid makes every triangle a face, and a full-deta
 - **Max Triangles** 20,000 (the default) keeps every point within about 0.009 mm of the full mesh; 10,000 stays within 0.015 mm and converts faster. Either is well below what a printer shows.
 - The full-detail mesh stays underneath, so you can turn Simplify off again at any time without rebuilding.
 
-Then *Export STL* (files are in millimetres). In FreeCAD, *File > Import* the STL (Mesh workbench). If you only need to place the board, it can stay a mesh. For Part or PartDesign work, use *Part > Create shape from mesh* (sewing tolerance 0.01 mm or less), then *Part > Convert to solid*.
+Then *Export STL* (files are in millimetres).
+
+### Import and convert to a solid
+
+1. In FreeCAD, *File > Import* the STL. It arrives as a mesh. If you only need to place the board in a model, you can stop here.
+2. Switch to the **Part** workbench, select the mesh and choose *Part > Create shape from mesh*, with a sewing tolerance of 0.01 mm or less.
+3. Select the new shape and choose *Part > Convert to solid*.
+
+### Make it a Body
+
+1. Switch to the **Part Design** workbench.
+2. Select the solid from step 3 and click **Create body**. The solid becomes the Body's *BaseFeature*, so PartDesign features (pockets, holes, pads) can be added on top. If the Body comes out empty, drag the solid onto the Body in the tree instead.
+3. **Hide the earlier objects.** The imported mesh and the shape from mesh are still in the document, at the same position, and still visible. Select them in the tree and press **Space**. Otherwise they fill any hole you cut, so you see the hole's outline but can't see through it (the exported STL is fine either way). Keep the solid: the Body is built from it.
+
+### Drill holes
+
+The weathered faces are made of thousands of small triangles, so don't sketch on them. Even the flat bottom stays in many pieces (Refine shape doesn't merge them, because the bottom's edges ease off slightly where they meet the weathered sides). Sketch on the Body's base planes instead. The board's origin is at its centre: X runs along the length, Y across the width and Z through the thickness.
+
+1. Create a sketch on the **XY plane** and draw the hole circles.
+2. Use **Pocket** with *Type* set to *Through all* (or a distance), and tick **Symmetric to plane**. The sketch sits in the middle of the board, so the pocket cuts both ways.
+
+For a hole from one face only, move the sketch to that face: in the sketch's *Attachment Offset*, set *Position z* to plus or minus half the printed thickness. For example, a 1.5 in board at 1:48 is 0.794 mm thick, so −0.397 mm puts the sketch on the bottom.
 
 ## Workflow
 
