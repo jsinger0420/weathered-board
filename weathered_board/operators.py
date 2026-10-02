@@ -1,7 +1,7 @@
 """Operators: the buttons in the Weathered Board panel.
 
-Add, Regenerate, New Seed, the edge-group buttons, Check Printability and
-Export STL. Each operator's docstring is the tooltip Blender shows for its
+Add, Regenerate, New Seed, the edge-group buttons, the preset buttons,
+Check Printability and Export STL. Each operator's docstring is the tooltip Blender shows for its
 button. ``rebuild`` is shared with live update in properties.py, and the
 object-level printability checks (open edges, self-intersections, real
 size) live here because they need Blender's mesh tools.
@@ -16,11 +16,12 @@ from bpy.props import BoolProperty, EnumProperty, FloatProperty, StringProperty
 from bpy_extras.io_utils import ExportHelper
 from mathutils.bvhtree import BVHTree
 
-from . import mesh_io
+from . import mesh_io, preset_store
 from .core import ParamError, build, check
 from .core import printcheck
 from .core.printcheck import ERROR, INFO, OK, WARNING, Finding
 from .core.params import EDGE_GROUPS
+from .core.presets import PRESET_KEYS, PresetError, get_builtin
 
 SEED_MAX = 2**31 - 1
 
@@ -425,11 +426,154 @@ class WBOARD_OT_export_stl(bpy.types.Operator, ExportHelper):
             context.view_layer.objects.active = active
 
 
+# --------------------------------------------------------------------------
+# Presets
+# --------------------------------------------------------------------------
+
+def _preset_targets(context):
+    """The settings a preset is applied to, and the boards they belong to.
+
+    With a board active: every selected board (and the active one), so a
+    preset can restyle several boards at once. Otherwise the scene's
+    settings for the next board added, with no boards.
+    """
+    active = _active_board(context)
+    if active is None:
+        return [context.scene.weathered_board], []
+    boards = [o for o in context.selected_objects if o.weathered_board.is_board]
+    if active not in boards:
+        boards.append(active)
+    return [o.weathered_board for o in boards], boards
+
+
+def _panel_settings(context):
+    """The settings the panel is showing: the active board's, or the scene's."""
+    active = _active_board(context)
+    return active.weathered_board if active else context.scene.weathered_board
+
+
+class WBOARD_OT_apply_preset(bpy.types.Operator):
+    """Apply a preset: a saved look (faces, edge rounding and weathering) and, with Presets Set Size on, its board size"""
+
+    bl_idname = "wboard.apply_preset"
+    bl_label = "Apply Preset"
+    bl_options = {"REGISTER", "UNDO"}
+
+    name: StringProperty(name="Preset", description="Name of the preset to apply")
+
+    @classmethod
+    def description(cls, context, properties):
+        """The built-in preset's own description, or a note that it is one of yours."""
+        preset = get_builtin(properties.name)
+        if preset is not None:
+            return preset.description
+        return f"Apply your saved preset '{properties.name}'"
+
+    def execute(self, context):
+        """Apply the preset to the selected boards, or to the settings for new boards.
+
+        Scale, printer, mesh and seed settings are never changed. Boards are
+        rebuilt once each if Live Update is on; otherwise click Regenerate.
+        """
+        preset = get_builtin(self.name)
+        try:
+            values = preset.full_values() if preset else preset_store.load(self.name)
+        except PresetError as err:
+            self.report({"ERROR"}, str(err))
+            return {"CANCELLED"}
+        scene_s = context.scene.weathered_board
+        targets, boards = _preset_targets(context)
+        for settings in targets:
+            settings.apply_values(values, include_size=scene_s.preset_size)
+            settings.preset = self.name
+        if scene_s.live_update:
+            for obj in boards:
+                error = rebuild(obj)
+                if error:
+                    self.report({"ERROR"}, f"{obj.name}: {error}")
+                    return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class WBOARD_OT_save_preset(bpy.types.Operator):
+    """Save the current look and board size as a preset of your own, to apply to other boards later"""
+
+    bl_idname = "wboard.save_preset"
+    bl_label = "Save Preset"
+
+    name: StringProperty(
+        name="Name", default="",
+        description="Name for the preset. Saving under an existing name replaces it",
+    )
+
+    def invoke(self, context, event):
+        """Ask for a name, suggesting the current preset's if it is one of yours."""
+        current = _panel_settings(context).preset
+        self.name = "" if preset_store.is_builtin(current) else current
+        return context.window_manager.invoke_props_dialog(self)
+
+    def execute(self, context):
+        """Write the panel's faces, rounding, weathering and size to a preset file."""
+        name = preset_store.clean_name(self.name)
+        if not name:
+            self.report({"ERROR"}, "Give the preset a name.")
+            return {"CANCELLED"}
+        if preset_store.is_builtin(name):
+            self.report({"ERROR"}, f"'{name}' is a built-in preset. Pick another name.")
+            return {"CANCELLED"}
+        settings = _panel_settings(context)
+        try:
+            preset_store.save(name, {key: getattr(settings, key) for key in PRESET_KEYS})
+        except OSError as err:
+            self.report({"ERROR"}, f"Couldn't save the preset: {err.strerror}.")
+            return {"CANCELLED"}
+        settings.preset = name
+        self.report({"INFO"}, f"Saved preset '{name}'.")
+        return {"FINISHED"}
+
+
+class WBOARD_OT_remove_preset(bpy.types.Operator):
+    """Delete one of your saved presets. Boards already made with it are not changed"""
+
+    bl_idname = "wboard.remove_preset"
+    bl_label = "Remove Preset"
+
+    name: StringProperty(name="Preset", description="Name of the saved preset to delete")
+
+    @classmethod
+    def description(cls, context, properties):
+        """Name the preset the button deletes."""
+        return f"Delete your saved preset '{properties.name}'. Boards already made with it are not changed"
+
+    def invoke(self, context, event):
+        """Ask before deleting: the preset file can't be brought back."""
+        return context.window_manager.invoke_confirm(
+            self, event, title=f"Delete preset '{self.name}'?", confirm_text="Delete")
+
+    def execute(self, context):
+        """Delete the preset file. Built-in presets can't be removed."""
+        if preset_store.is_builtin(self.name):
+            self.report({"ERROR"}, "Built-in presets can't be removed.")
+            return {"CANCELLED"}
+        try:
+            preset_store.remove(self.name)
+        except OSError as err:
+            self.report({"ERROR"}, f"Couldn't delete the preset: {err.strerror}.")
+            return {"CANCELLED"}
+        settings = _panel_settings(context)
+        if settings.preset == self.name:
+            settings.preset = ""
+        return {"FINISHED"}
+
+
 classes = (
     WBOARD_OT_add,
     WBOARD_OT_regenerate,
     WBOARD_OT_new_seed,
     WBOARD_OT_set_edges,
+    WBOARD_OT_apply_preset,
+    WBOARD_OT_save_preset,
+    WBOARD_OT_remove_preset,
     WBOARD_OT_check,
     WBOARD_OT_export_stl,
 )

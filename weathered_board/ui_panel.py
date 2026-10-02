@@ -7,7 +7,9 @@ otherwise it edits the settings used for the next board added.
 import bpy
 
 from .core.geometry import MAX_VERTICES, estimate_vertices
+from . import preset_store
 from .core.params import EDGE_GROUPS, MAX_DEPTH_FRACTION, ParamError
+from .core.presets import BUILTIN_PRESETS
 from .core.weather import detail_factor
 
 
@@ -76,7 +78,8 @@ class WBOARD_PT_main(bpy.types.Panel):
     def draw(self, context):
         """Draw the main section.
 
-        From the top: the board being edited, Add / Regenerate / New Seed, the
+        From the top: the board being edited, Add, the preset menu and Save
+        Preset button, Regenerate / New Seed, the
         Live Update and Show Grain Pattern switches, any build error, size and
         scale with the printed size and expected vertex count, faces to
         weather, and the seed.
@@ -88,6 +91,9 @@ class WBOARD_PT_main(bpy.types.Panel):
 
         row = layout.row(align=True)
         row.operator("wboard.add", icon="ADD")
+        row = layout.row(align=True)
+        row.menu("WBOARD_MT_presets", text=s.preset or "Presets", icon="PRESET")
+        row.operator("wboard.save_preset", text="", icon="ADD")
         if on_board:
             row = layout.row(align=True)
             row.operator("wboard.regenerate", icon="FILE_REFRESH")
@@ -254,12 +260,48 @@ def _draw_report(layout, report: str) -> None:
             sub.label(text=sentence.rstrip("."))
 
 
+class WBOARD_MT_presets(bpy.types.Menu):
+    """Apply a preset look to the selected boards, or to the settings for new boards."""
+
+    bl_label = "Presets"
+    bl_idname = "WBOARD_MT_presets"
+
+    def draw(self, context):
+        """Built-in presets, then your saved ones, then the Presets Set Size switch."""
+        layout = self.layout
+        for preset in BUILTIN_PRESETS:
+            layout.operator("wboard.apply_preset", text=preset.name).name = preset.name
+        saved = preset_store.saved_names()
+        if saved:
+            layout.separator()
+            for name in saved:
+                layout.operator("wboard.apply_preset", text=name, icon="USER").name = name
+        layout.separator()
+        layout.prop(context.scene.weathered_board, "preset_size")
+        if saved:
+            layout.menu("WBOARD_MT_remove_preset", icon="TRASH")
+
+
+class WBOARD_MT_remove_preset(bpy.types.Menu):
+    """Pick one of your saved presets to delete."""
+
+    bl_label = "Remove Saved Preset"
+    bl_idname = "WBOARD_MT_remove_preset"
+
+    def draw(self, _context):
+        """One entry per saved preset."""
+        for name in preset_store.saved_names():
+            self.layout.operator("wboard.remove_preset", text=name).name = name
+
+
 def draw_add_menu(self, _context):
     """Entry in the 3D Viewport's Add > Mesh menu (Shift+A)."""
     self.layout.operator("wboard.add", text="Weathered Board", icon="MESH_CUBE")
 
 
 classes = (
+    WBOARD_MT_presets,
+    WBOARD_MT_remove_preset,
     WBOARD_PT_main,
     WBOARD_PT_edges,
     WBOARD_PT_weathering,

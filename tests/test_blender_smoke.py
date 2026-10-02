@@ -321,3 +321,146 @@ def test_simplify_survives_a_rebuild(addon):
     mod = obj.modifiers.get("WB Simplify")
     assert mod is not None
     assert mod.ratio * len(obj.data.polygons) == pytest.approx(3000)
+
+
+@pytest.fixture
+def preset_dir(addon, tmp_path):
+    """Keep saved presets in a temporary folder for one test."""
+    from weathered_board import preset_store
+
+    preset_store.folder_override = str(tmp_path / "presets")
+    yield tmp_path / "presets"
+    preset_store.folder_override = None
+
+
+def test_preset_defaults_match_the_panel(addon):
+    """core.presets.DEFAULT_VALUES agrees with every property's default in Blender."""
+    from weathered_board.core.presets import DEFAULT_VALUES
+
+    rna = bpy.types.Scene.bl_rna.properties["weathered_board"].fixed_type.properties
+    for key, value in DEFAULT_VALUES.items():
+        default = rna[key].default
+        assert default == pytest.approx(value) if isinstance(value, float) else default == value, key
+
+
+def test_apply_builtin_preset_to_new_board_settings(addon):
+    """A built-in preset applied with nothing selected sets the next board's look and size."""
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    s = bpy.context.scene.weathered_board
+    assert bpy.ops.wboard.apply_preset(name="Barn Siding") == {"FINISHED"}
+    assert s.width == 11.5 and s.depth == 4.5 and s.use_end_depth
+    assert s.preset == "Barn Siding"
+    assert s.scale_n == 48.0  # scale untouched
+
+
+def test_apply_preset_keeps_size_when_asked(addon):
+    """With Presets Set Size off, only the look changes."""
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    s = bpy.context.scene.weathered_board
+    s.preset_size = False
+    s.length = 50.0
+    bpy.ops.wboard.apply_preset(name="Fence Board")
+    assert s.length == 50.0 and s.thickness == 1.5
+    assert s.depth == 2.5
+
+
+def test_apply_preset_rebuilds_selected_boards(addon):
+    """Applying a preset to selected boards restyles and rebuilds each once."""
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    s = bpy.context.scene.weathered_board
+    s.count = 2
+    s.length = 24.0
+    s.resolution = 0.1
+    bpy.ops.wboard.add()
+    boards = [o for o in bpy.data.objects if o.weathered_board.is_board]
+    for o in boards:
+        o.select_set(True)
+    widths = [o.dimensions.y for o in boards]
+    s.preset_size = True
+    assert bpy.ops.wboard.apply_preset(name="Barn Siding") == {"FINISHED"}
+    for o, before in zip(boards, widths):
+        assert o.weathered_board.width == 11.5
+        assert o.weathered_board.preset == "Barn Siding"
+        assert o.dimensions.y > 1.5 * before  # rebuilt at the new width
+    assert not __import__("weathered_board.properties").properties._pending
+
+
+def test_save_apply_and_remove_your_own_preset(preset_dir):
+    """A saved preset appears as a file, applies back, and can be deleted."""
+    from weathered_board import preset_store
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    s = bpy.context.scene.weathered_board
+    s.depth = 1.25
+    s.round_a_top = 0.9
+    assert bpy.ops.wboard.save_preset(name="My Look") == {"FINISHED"}
+    assert (preset_dir / "My Look.json").exists()
+    assert preset_store.saved_names() == ["My Look"]
+
+    s.depth = 3.0
+    s.round_a_top = 0.15
+    assert bpy.ops.wboard.apply_preset(name="My Look") == {"FINISHED"}
+    assert s.depth == pytest.approx(1.25) and s.round_a_top == pytest.approx(0.9)
+
+    assert bpy.ops.wboard.remove_preset(name="My Look") == {"FINISHED"}
+    assert preset_store.saved_names() == []
+    assert s.preset == ""
+
+
+def test_builtin_names_are_reserved(preset_dir):
+    """You can't save over or remove a built-in preset."""
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    with pytest.raises(RuntimeError):
+        bpy.ops.wboard.save_preset(name="dock plank")
+    with pytest.raises(RuntimeError):
+        bpy.ops.wboard.remove_preset(name="Dock Plank")
+
+
+def test_preset_names_are_made_file_safe(preset_dir):
+    """Characters Windows can't use in a file name are dropped."""
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.wboard.save_preset(name='Old: "grey" 1/2')
+    assert (preset_dir / "Old grey 12.json").exists()
+
+
+def test_a_broken_preset_file_is_reported(preset_dir):
+    """A damaged preset file gives an error, not a half-applied preset."""
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    preset_dir.mkdir(parents=True, exist_ok=True)
+    (preset_dir / "Broken.json").write_text("{nope", encoding="utf-8")
+    s = bpy.context.scene.weathered_board
+    with pytest.raises(RuntimeError):
+        bpy.ops.wboard.apply_preset(name="Broken")
+    assert s.depth == 3.0
+
+
+def test_preset_menu_and_buttons_have_tooltips(addon):
+    """Built-in presets show their own description as the tooltip."""
+    from weathered_board.core.presets import BUILTIN_PRESETS
+    from weathered_board.operators import WBOARD_OT_apply_preset
+
+    for preset in BUILTIN_PRESETS:
+        props = type("P", (), {"name": preset.name})
+        assert WBOARD_OT_apply_preset.description(None, props) == preset.description
+    props = type("P", (), {"name": "Mine"})
+    assert "Mine" in WBOARD_OT_apply_preset.description(None, props)
+
+
+def test_preset_menu_and_panel_draw(preset_dir):
+    """The presets menu lists built-ins and saved presets; the panel shows the current one."""
+    from unittest import mock
+
+    from weathered_board import preset_store, ui_panel
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    preset_store.save("Mine", {})
+    menu = mock.MagicMock()
+    ui_panel.WBOARD_MT_presets.draw(menu, bpy.context)
+    texts = [c.kwargs.get("text") for c in menu.layout.operator.call_args_list]
+    assert texts == ["Barn Siding", "Dock Plank", "Fence Board", "Mine"]
+
+    bpy.ops.wboard.apply_preset(name="Dock Plank")
+    panel = mock.MagicMock()
+    ui_panel.WBOARD_PT_main.draw(panel, bpy.context)
+    menus = panel.layout.row.return_value.menu.call_args_list
+    assert menus[0].kwargs["text"] == "Dock Plank"

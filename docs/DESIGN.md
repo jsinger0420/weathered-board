@@ -67,7 +67,8 @@ The add-on is packaged as a Blender 4.2+ extension (`blender_manifest.toml`), in
 ```
 ui_panel.py   Sidebar panel (settings stored on the object via properties.py)
      |
-operators.py  Add / Regenerate / New Seed / Check / Export
+operators.py  Add / Regenerate / New Seed / Presets / Check / Export
+     |        (preset_store.py: saved presets as JSON files)
      |
 +--- core/  (pure numpy, no bpy) ------------------------------+
 |  geometry.py   router-shaped box: 12 edge radii, normals     |
@@ -79,6 +80,7 @@ operators.py  Add / Regenerate / New Seed / Check / Export
 |       |                                                      |
 |  weather.py    carve: erosion, knots, checks; inward only    |
 |  printcheck.py printability checks on the built board       |
+|  presets.py    built-in looks, preset files, settings->params|
 +--------------------------------------------------------------+
      |
 mesh_io.py    shrink by scale, write Blender mesh, print checks
@@ -93,6 +95,7 @@ Operators on the panel:
 - **Add Weathered Board** — creates a new board object from the current settings.
 - **Regenerate** — rebuilds the selected board's mesh after settings change, keeping its seed.
 - **New Seed** — rolls a new seed and regenerates, for a different board of the same size.
+- **Presets** menu and **Save Preset** (+) — apply a built-in or saved look, or save the current one (see Presets below).
 - **Check Printability** — runs the checks in the output section and lists the results in the Printing panel.
 - **Export STL** — exports the selected boards in millimetres, in one file or one file per board.
 
@@ -264,6 +267,28 @@ The seed is stored on the board object along with every other setting, so Regene
 
 Smooth 3D noise (fractal value or simplex noise, 3–5 octaves) is written in numpy inside the core and evaluated on all vertices at once. Blender's own `mathutils.noise` is not used because it works one point at a time, which is far too slow for meshes of several hundred thousand vertices.
 
+## Presets
+
+A preset is a named set of settings: the board's look (faces to weather, the 12 edge roundings and every weathering setting) and its full-size length, width, thickness and units. It never holds the scale, printer, resolution, detail boost, simplify or seed settings, so a preset looks the same at any scale and on any printer. Weathering sizes are full-size, so this needs no conversion.
+
+The **Presets** menu at the top of the panel lists the built-in presets, then any saved ones, then the **Presets Set Size** switch (on by default). Turned off, applying a preset takes only its look and keeps the current size. With a board selected, a preset is applied to every selected board and each is rebuilt once (if Live Update is on); with nothing selected it sets the settings for the next board added. The menu button shows the preset last applied.
+
+Built-in presets (in `core/presets.py`):
+
+| Preset | Board (full size) | Look |
+| --- | --- | --- |
+| Barn Siding | 1×12 rough-sawn, 0.875 × 11.5 in, 10 ft | Deep (4.5 mm), crisp grain (sharpness 0.8), wide rings 3–7 mm, many checks (0.6), 1–3 knots, ends carved deeper (5 mm), edges 0.25 / ends 0.3 |
+| Dock Plank | 2×6, 1.5 × 5.5 in, 12 ft | Rolling grain worn by feet (sharpness 0.4), rings 4–8 mm, top edges well rounded (0.5) and bottom edges less (0.2), ends 0.35 and deeply eroded (6 mm), checks 0.5 |
+| Fence Board | 5/8 in cedar picket, 0.625 × 5.5 in, 6 ft | Fine tight grain (rings 2–4 mm), near-square edges (0.1), 1–3 knots, lighter wear (2.5 mm), checks 0.35 |
+
+All three pass Check Printability at 1:24 and 1:48 (Barn Siding at 1:24 is a 2.8 million triangle mesh, so it gets the heavy-mesh warning). At 1:87 the two thin boards are only 0.26 and 0.18 mm thick before carving, so the wall check fails; that is the scale, not the preset.
+
+**Saved presets.** The + button saves the current settings under a name. Each saved preset is a small JSON file, `{"version": 1, "values": {...}}`, in the extension's own user folder (`bpy.utils.extension_path_user`, which Blender keeps across updates). Names are made safe for file names. Saving under an existing name replaces it; built-in names are reserved. *Remove Saved Preset* in the menu deletes one after a confirmation. Reading a file skips settings it doesn't know (from a newer version) and refuses values of the wrong kind rather than half-applying them.
+
+This uses the add-on's own menu and files rather than Blender's operator-preset system (`AddPresetBase`, which saves Python scripts that run when applied), so that built-in and saved presets behave the same, the size can be left out, presets apply to several boards at once and the built-ins can be tested without Blender.
+
+`core/presets.py` also holds `params_from_values`, which turns settings keyed by property name into `BoardParams`; the panel's `to_params` uses it too, so a preset and the panel can never disagree about what a setting means.
+
 ## Output for 3D printing, testing and build plan
 
 ### Output for printing
@@ -326,7 +351,7 @@ Examples, for a 1×6: at 1:48 with default settings every check passes (rings 0.
 4. **Carving.** Done: erosion profile with scooped valleys, face selection, two-part fold-safe carving, easing between faces of different depth, auto detail boost, ring anti-aliasing, panel feedback on ring size and cut; 27 carving tests.
 5. **Character.** Done: knots (grain bends around them, hard cores stand proud), checks (straight splits along the fibres on long faces, radial cracks on ends, cutting deeper than the wear), patchy wear, separate end depth (step 4); 25 feature tests.
 6. **Printing.** Done: Check Printability (object and settings checks, results in the panel), STL export with one file per board, FDM and resin defaults; 13 printability tests. Still to do by hand: test prints at 1:24, 1:48 and 1:87.
-7. **Presets.** Common looks (barn siding, dock plank, fence board) saved as Blender operator presets.
+7. **Presets.** Done: built-in Barn Siding, Dock Plank and Fence Board; save and remove your own presets; Presets Set Size switch; apply to several boards at once; 34 preset tests.
 
 ### Decisions
 
@@ -335,4 +360,5 @@ Examples, for a 1×6: at 1:48 with default settings every check passes (rings 0.
 - Resin is the primary printer: defaults are `printer` = resin, `resolution` = 0.05 mm and `min_feature` = 0.1 mm. FDM stays available as a setting.
 - End pattern is evenly spaced, stylized semicircles.
 - Each of the 12 edges has its own rounding value, with group buttons to set several at once.
+- Presets hold the look and the full-size board size, never scale, printer or seed; saved presets are JSON files, not Blender operator-preset scripts.
 - The design lives in this file (`docs/DESIGN.md`) under version control; update it in the same commit as any change that alters the design.

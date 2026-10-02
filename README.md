@@ -10,7 +10,7 @@ A Blender 4.2+ add-on that generates wooden boards with realistic weathering, fo
 
 The full design is in [docs/DESIGN.md](docs/DESIGN.md).
 
-**Status:** build steps 1–6 done. The add-on builds boards with a separate rounding on each of the 12 edges and carves weathering into the chosen faces: curving grain on the long faces, semicircles on the ends, knots, cracks and patchy wear. Check Printability lists any printing problems in the panel, and Export STL writes one file or one per board. Presets for common looks come next (step 7 in the design doc).
+**Status:** all seven build steps are done. The add-on builds boards with a separate rounding on each of the 12 edges and carves weathering into the chosen faces: curving grain on the long faces, semicircles on the ends, knots, cracks and patchy wear. Presets (Barn Siding, Dock Plank, Fence Board, or your own) set a whole look in one click. Check Printability lists any printing problems in the panel, and Export STL writes one file or one per board.
 
 ## Repository layout
 
@@ -20,7 +20,8 @@ weathered-board/
 │   ├── blender_manifest.toml Extension metadata (id, version, Blender 4.2+)
 │   ├── __init__.py           register() / unregister()
 │   ├── properties.py         Settings stored on the scene and on each board
-│   ├── operators.py          Add, Regenerate, New Seed, Set Edges, Export STL
+│   ├── operators.py          Add, Regenerate, New Seed, Set Edges, Presets, Check, Export STL
+│   ├── preset_store.py       Saved presets on disk (JSON files)
 │   ├── ui_panel.py           3D Viewport sidebar panel
 │   ├── mesh_io.py            numpy arrays -> Blender mesh
 │   └── core/                 Pure numpy, never imports bpy
@@ -33,6 +34,7 @@ weathered-board/
 │       ├── rng.py            Separate seeded random stream per part
 │       ├── weather.py        Carving: ridges, recession, fold repair
 │       ├── printcheck.py     Printability checks on the built board
+│       ├── presets.py        Built-in presets, preset files, settings -> params
 │       └── noise.py          Vectorized fractal noise
 ├── tests/                    pytest: core tests + Blender smoke tests
 ├── docs/DESIGN.md            Design document
@@ -66,6 +68,18 @@ Pick one:
    - Linux: `~/.config/blender/4.2/extensions/user_default/weathered_board`
 
 The panel is in the 3D Viewport sidebar (press N), on the **Weathered Board** tab. Boards can also be added with Shift+A > Mesh > Weathered Board. Turn on *Show Grain Pattern* to see the ring patterns as colour; it switches the viewport to Solid shading with attribute colours.
+
+## Presets
+
+The **Presets** menu at the top of the panel sets a whole look at once:
+
+- **Barn Siding** — rough 1×12, 10 ft: deep crisp grain, lots of checks, knots, hard-worn ends.
+- **Dock Plank** — 2×6, 12 ft: rolling grain, well-rounded top edges, eroded end grain.
+- **Fence Board** — 5/8 in cedar picket, 6 ft: fine tight grain, near-square edges, light wear.
+
+With boards selected, the preset restyles all of them; with nothing selected, it sets up the next board you add. Presets never change the scale, printer or seed. Turn off **Presets Set Size** (at the bottom of the menu) to take only the look and keep your own length, width and thickness.
+
+Click **+** next to the menu to save the current settings as your own preset; it then appears in the menu under the built-ins. *Remove Saved Preset* in the same menu deletes one. Saved presets are small JSON files in the extension's user folder, so they survive updating the add-on.
 
 ## Building and installing
 

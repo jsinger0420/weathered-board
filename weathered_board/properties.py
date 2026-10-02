@@ -19,7 +19,8 @@ from bpy.props import (
     StringProperty,
 )
 
-from .core.params import BoardParams, EDGES, FACES, PRINTER_DEFAULTS, to_mm
+from .core.params import BoardParams, EDGES, FACES, PRINTER_DEFAULTS
+from .core.presets import DEFAULT_VALUES, SIZE_KEYS, params_from_values
 
 UNIT_ITEMS = [
     ("IN", "Inches", "Length, width and thickness are entered in inches"),
@@ -369,6 +370,16 @@ class WBOARD_Settings(bpy.types.PropertyGroup):
                     "ridges, darker knots and cracks, grey for faces that won't be weathered",
         default=False, update=_show_pattern_update,
     )
+    preset_size: BoolProperty(
+        name="Presets Set Size",
+        description="Applying a preset also sets Length, Width and Thickness to the preset's "
+                    "board. Off = keep your size and take only the look",
+        default=True,
+    )
+    preset: StringProperty(
+        name="Preset", default="", options={"HIDDEN"},
+        description="The preset last applied to these settings",
+    )
     last_error: StringProperty(default="", options={"HIDDEN"})
     # Result of the last Check Printability: one finding per line,
     # "LEVEL\ttitle\tdetail". Cleared whenever the board is rebuilt.
@@ -376,33 +387,26 @@ class WBOARD_Settings(bpy.types.PropertyGroup):
 
     def to_params(self) -> BoardParams:
         """Convert to the plain values the core works with."""
-        mm = lambda v: to_mm(v, self.units)  # noqa: E731
-        return BoardParams(
-            length=mm(self.length),
-            width=mm(self.width),
-            thickness=mm(self.thickness),
-            scale=self.scale_n,
-            faces={f: getattr(self, f"weather_{f}") for f in FACES},
-            edge_round={e: getattr(self, f"round_{e}") for e in EDGES},
-            depth=self.depth,
-            edge_margin=self.edge_margin,
-            ring_spacing=(self.ring_spacing_min, self.ring_spacing_max),
-            ridge_sharpness=self.ridge_sharpness,
-            grain_waviness=self.grain_waviness,
-            end_spacing=self.end_spacing,
-            end_center=self.end_center,
-            end_wobble=self.end_wobble,
-            end_depth=self.end_depth if self.use_end_depth else None,
-            knots=(self.knots_min, max(self.knots_min, self.knots_max)),
-            checks=self.checks,
-            patchiness=self.patchiness,
-            printer=self.printer,
-            resolution=self.resolution,
-            min_feature=self.min_feature,
-            detail_boost=self.detail_boost,
-            auto_detail=self.auto_detail,
-            seed=self.seed,
-        )
+        return params_from_values({key: getattr(self, key) for key in DEFAULT_VALUES})
+
+    def apply_values(self, values, include_size: bool = True) -> None:
+        """Set several settings at once, as when a preset is applied.
+
+        ``values`` maps property names to values; names this version doesn't
+        have are skipped. Length, width, thickness and units are left alone
+        unless ``include_size``. Live update is suspended while they change,
+        so the caller rebuilds the board once afterwards.
+        """
+        global _suspended
+        _suspended = True
+        try:
+            for key, value in values.items():
+                if key in SIZE_KEYS and not include_size:
+                    continue
+                if key in self.__annotations__:
+                    setattr(self, key, value)
+        finally:
+            _suspended = False
 
     def copy_from(self, other: "WBOARD_Settings") -> None:
         """Copy every setting from ``other`` into this one.
