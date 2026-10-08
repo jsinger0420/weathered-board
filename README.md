@@ -81,6 +81,10 @@ With boards selected, the preset restyles all of them; with nothing selected, it
 
 Click **+** next to the menu to save the current settings as your own preset; it then appears in the menu under the built-ins. *Remove Saved Preset* in the same menu deletes one. Saved presets are small JSON files in the extension's user folder, so they survive updating the add-on.
 
+## Using it from another add-on
+
+Other add-ons can build boards through `weathered_board.api` (found at runtime, since extensions can't depend on each other): `list_presets()`, `get_preset_values(name)` and `build_board(...)`, which returns the mesh as numpy arrays in printed millimetres without adding anything to the scene. See *Using Weathered Board from another add-on* in `docs/DESIGN.md` for the discovery snippet, an example and the versioning rule.
+
 ## Building and installing
 
 ```bash

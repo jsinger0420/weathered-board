@@ -464,3 +464,37 @@ def test_preset_menu_and_panel_draw(preset_dir):
     ui_panel.WBOARD_PT_main.draw(panel, bpy.context)
     menus = panel.layout.row.return_value.menu.call_args_list
     assert menus[0].kwargs["text"] == "Dock Plank"
+
+
+def test_api_lists_and_builds_saved_presets(preset_dir):
+    """Inside Blender the public API sees saved presets, after the built-ins."""
+    from weathered_board import api, preset_store
+
+    preset_store.save("Mine", {"depth": 1.5, "weather_bottom": True})
+    presets = api.list_presets()
+    assert [p.builtin for p in presets] == [True] * 3 + [False]
+    assert presets[-1].name == "Mine"
+    assert api.get_preset_values("Mine")["depth"] == 1.5
+    board = api.build_board(preset="Mine", weather_bottom=None, length_mm=300.0,
+                            width_mm=100.0, thickness_mm=30.0, scale=24.0, resolution=0.1)
+    assert board.face_depth["bottom"] > 0
+
+
+def test_api_reports_a_broken_saved_preset(preset_dir):
+    """A damaged saved preset is a BoardError from the API."""
+    from weathered_board import api
+
+    preset_dir.mkdir(parents=True, exist_ok=True)
+    (preset_dir / "Broken.json").write_text("{nope", encoding="utf-8")
+    with pytest.raises(api.BoardError):
+        api.get_preset_values("Broken")
+
+
+def test_api_leaves_the_scene_alone(addon):
+    """build_board adds no objects or meshes to the file."""
+    from weathered_board import api
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    objects, meshes = len(bpy.data.objects), len(bpy.data.meshes)
+    api.build_board(length_mm=300.0, width_mm=100.0, thickness_mm=30.0, scale=24.0)
+    assert (len(bpy.data.objects), len(bpy.data.meshes)) == (objects, meshes)

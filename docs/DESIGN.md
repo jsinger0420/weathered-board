@@ -68,6 +68,7 @@ The add-on is packaged as a Blender 4.2+ extension (`blender_manifest.toml`), in
 ui_panel.py   Sidebar panel (settings stored on the object via properties.py)
      |
 operators.py  Add / Regenerate / New Seed / Presets / Check / Export
+     |        (api.py: public API for other add-ons, no bpy objects)
      |        (preset_store.py: saved presets as JSON files)
      |
 +--- core/  (pure numpy, no bpy) ------------------------------+
@@ -289,6 +290,62 @@ This uses the add-on's own menu and files rather than Blender's operator-preset 
 
 `core/presets.py` also holds `params_from_values`, which turns settings keyed by property name into `BoardParams`; the panel's `to_params` uses it too, so a preset and the panel can never disagree about what a setting means.
 
+## Using Weathered Board from another add-on
+
+Other add-ons (the first is Tie Strip Generator, which makes 3D-printable railroad tie strips) build boards through one public module, `api.py`. Everything else in the package (`core`, `preset_store`, the operators) is internal and free to change; `api.py` keeps its names and meanings.
+
+**Finding it.** Blender extensions can't declare dependencies on each other, so the caller looks for Weathered Board at runtime. Installed as an extension, the package is `bl_ext.<repo>.weathered_board`:
+
+```python
+import importlib
+import bpy
+
+def weathered_board_api():
+    """Weathered Board's public API module, or None if it isn't enabled."""
+    for name in bpy.context.preferences.addons.keys():
+        if name.endswith(".weathered_board"):
+            api = importlib.import_module(name + ".api")
+            return api if api.API_VERSION[0] == 1 else None
+    return None
+```
+
+**Building a board.** Every argument is keyword-only. The look comes from `preset`, then `values` on top of it (settings keyed as in `PRESET_KEYS`), or the defaults if neither is given. The size is always the caller's, in full-size millimetres:
+
+```python
+api = weathered_board_api()
+if api is None:
+    raise RuntimeError("Enable the Weathered Board add-on.")
+try:
+    tie = api.build_board(
+        preset="Barn Siding",
+        length_mm=102 * 25.4, width_mm=9 * 25.4, thickness_mm=7 * 25.4,  # 8'6" x 9" x 7"
+        scale=87.1, printer="RESIN", seed=42,
+    )
+except api.BoardError as err:
+    print(err)  # short message, fit for a panel
+else:
+    tie.vertices    # (N, 3) float64, printed mm (about 29.75 x 2.62 x 2.04 here)
+    tie.triangles   # (M, 3) int32, wound outward, watertight
+    tie.face_depth  # deepest cut per face, printed mm: {"top": ..., "front": ..., ...}
+```
+
+| Function / class | Purpose |
+| --- | --- |
+| `API_VERSION` | `(major, minor)`, now `(1, 0)` |
+| `list_presets()` | `PresetInfo(name, description, builtin)` for the built-ins, then saved presets (built-ins only outside Blender) |
+| `get_preset_values(name)` | A preset's full settings dict |
+| `build_board(...)` | A `BoardMesh`: `vertices`, `triangles`, `face_depth`, `boost`, `carve_depth_mm` |
+| `BoardError` | The only exception raised (a `ValueError`); wraps settings and preset-file errors |
+
+Rules:
+
+- **Coordinates.** The board is centred on the origin with length on X, width on Y and thickness on Z (faces as in *User inputs and parameters*). This won't change.
+- **Flat bottom by default.** `weather_bottom` defaults to `False`, since ties and most printed parts sit on their bottom; `None` keeps the preset's choice. The bottom's `face_depth` is then a few microns at most, from the easing where rounded edges meet weathered sides.
+- **Scale, printer and seed come from the arguments,** never from the preset. `resolution` and `min_feature` default from the printer; `detail_boost` and `auto_detail` from the add-on's defaults. Seeds wrap into 0 to 2³¹ − 1.
+- **No Blender state.** `build_board` creates no objects, changes nothing in the scene and needs no context, so it also runs from plain Python. The same arguments always give the same mesh.
+- **One path.** The API turns its arguments into settings and builds through `params_from_values` and `core.build`, exactly as the panel does, so an API board and a panel board with the same settings are identical.
+- **Versioning.** Raise the minor number when adding features (new optional arguments, new fields at the end of `BoardMesh`). Raise the major number only for a breaking change, and avoid those. Callers check the major number.
+
 ## Output for 3D printing, testing and build plan
 
 ### Output for printing
@@ -337,7 +394,7 @@ Examples, for a 1×6: at 1:48 with default settings every check passes (rings 0.
 - [x] No folds: no carved triangle turns over, for any rounding and face selection.
 - [x] Envelope: no vertex outside the original box, for many random seeds.
 - [x] Unselected faces: vertices with full weight on an unselected face do not move.
-- [ ] Repeatable: same seed and settings give identical meshes; different seeds differ.
+- [x] Repeatable: same seed and settings give identical meshes; different seeds differ.
 - [x] Per-edge rounding: each of the 12 sliders sets only its own edge's radius; mixed radii at a corner leave no gaps or folded triangles.
 - [ ] End pattern: ring spacing measured on the end equals `end_spacing` with wobble 0.
 - [x] Scale: printed size equals full size / N within 0.1%.
@@ -352,6 +409,7 @@ Examples, for a 1×6: at 1:48 with default settings every check passes (rings 0.
 5. **Character.** Done: knots (grain bends around them, hard cores stand proud), checks (straight splits along the fibres on long faces, radial cracks on ends, cutting deeper than the wear), patchy wear, separate end depth (step 4); 25 feature tests.
 6. **Printing.** Done: Check Printability (object and settings checks, results in the panel), STL export with one file per board, FDM and resin defaults; 13 printability tests. Still to do by hand: test prints at 1:24, 1:48 and 1:87.
 7. **Presets.** Done: built-in Barn Siding, Dock Plank and Fence Board; save and remove your own presets; Presets Set Size switch; apply to several boards at once; 34 preset tests.
+8. **Public API (0.1.5).** Done: `api.py` for other add-ons (Tie Strip Generator first): list presets, read their values, build a board as numpy arrays without touching the scene; `API_VERSION` 1.0; 17 API tests plus 3 in Blender.
 
 ### Decisions
 
@@ -361,4 +419,5 @@ Examples, for a 1×6: at 1:48 with default settings every check passes (rings 0.
 - End pattern is evenly spaced, stylized semicircles.
 - Each of the 12 edges has its own rounding value, with group buttons to set several at once.
 - Presets hold the look and the full-size board size, never scale, printer or seed; saved presets are JSON files, not Blender operator-preset scripts.
+- Other add-ons use only `api.py`, found at runtime by package name; the rest of the package stays internal. Its API defaults to a flat bottom.
 - The design lives in this file (`docs/DESIGN.md`) under version control; update it in the same commit as any change that alters the design.
